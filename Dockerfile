@@ -29,7 +29,8 @@ COPY --from=frontend-builder /app/dashboard /app/dashboard
 
 # Copy Nginx config and entrypoint
 COPY nginx.conf /etc/nginx/nginx.conf
-RUN chmod +x /app/entrypoint.sh
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+RUN mkdir -p /app/data
 
 ENV PYTHONPATH=/app
 ENV PORT=7860

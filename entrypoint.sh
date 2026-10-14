@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+mkdir -p /app/data
+
 echo "Starting FastAPI backend on port 8000..."
 uvicorn src.api.main:app --host 127.0.0.1 --port 8000 &
 
