@@ -11,6 +11,16 @@ from src.prediction.predictor import LivePredictor
 from src.trading.paper_trader import PaperTrader
 from src.data.collectors.live import BinanceLiveCollector
 
+try:
+    import spaces
+except ImportError:
+    class spaces:
+        @staticmethod
+        def GPU(func=None, duration=60):
+            if func is None:
+                return lambda f: f
+            return func
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("HF-BTC-App")
 
@@ -94,6 +104,7 @@ worker_thread.start()
 # -------------------------------------------------------------
 # Core Prediction Evaluation
 # -------------------------------------------------------------
+@spaces.GPU
 def run_ai_prediction():
     try:
         collector = BinanceLiveCollector(symbol="BTCUSDT")
