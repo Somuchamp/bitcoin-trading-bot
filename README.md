@@ -3,9 +3,9 @@ title: BTC Autonomous Trading Platform
 emoji: 📈
 colorFrom: blue
 colorTo: indigo
-sdk: docker
-suggested_hardware: cpu-basic
-app_port: 7860
+sdk: gradio
+sdk_version: 5.0.0
+app_file: app.py
 pinned: false
 ---
 
