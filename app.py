@@ -2,8 +2,9 @@ import asyncio
 import threading
 import logging
 from pathlib import Path
-import gradio as gr
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, FileResponse
+import gradio as gr
 
 from src.api.main import app as api_app, startup_event, websocket_price
 from src.prediction.worker import LiveWorker
@@ -39,56 +40,41 @@ def start_worker():
 def run_model_inference_gpu(prompt: str = ""):
     return "ZeroGPU Accelerated"
 
-# 3. Build Full-Viewport Dashboard using Gradio + Next.js
-custom_css = """
-body, html {
-    margin: 0 !important;
-    padding: 0 !important;
-    overflow: hidden !important;
-    background-color: #0b0f19 !important;
-}
-.gradio-container {
-    max-width: 100% !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    height: 100vh !important;
-    width: 100vw !important;
-    border: none !important;
-}
-footer {
-    display: none !important;
-}
-.contain {
-    padding: 0 !important;
-    margin: 0 !important;
-}
-"""
-
-with gr.Blocks(title="Bitcoin AI Trading Platform") as demo:
-    # Fullscreen responsive iframe embedding the custom Next.js dark-mode dashboard
-    gr.HTML("""
-    <iframe
-        id="nextjs-dashboard-frame"
-        src="/app"
-        style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; border: none; margin: 0; padding: 0; z-index: 99999;"
-        allow="clipboard-write; fullscreen"
-    ></iframe>
-    """)
-    
+# 3. Gradio Blocks container
+with gr.Blocks(title="Bitcoin Autonomous Trading & Prediction") as demo:
     # Hidden ZeroGPU event trigger to satisfy Hugging Face requirements
-    with gr.Row(visible=False):
-        dummy_in = gr.Textbox(value="init", visible=False)
-        dummy_out = gr.Textbox(visible=False)
-        dummy_btn = gr.Button("GPU_EXEC", visible=False)
-        dummy_btn.click(fn=run_model_inference_gpu, inputs=[dummy_in], outputs=[dummy_out])
+    dummy_in = gr.Textbox(value="init", visible=False)
+    dummy_out = gr.Textbox(visible=False)
+    dummy_btn = gr.Button("GPU_EXEC", visible=False)
+    dummy_btn.click(fn=run_model_inference_gpu, inputs=[dummy_in], outputs=[dummy_out])
 
-# 4. Mount API Routes and Static Next.js Build onto Gradio's FastAPI engine
+# 4. Mount Next.js Dashboard & Backend APIs onto the web server
 out_dir = Path(__file__).parent / "dashboard" / "out"
+
+# Mount Next.js static chunks (CSS, JS, fonts)
+next_assets_dir = out_dir / "_next"
+if next_assets_dir.exists():
+    demo.app.mount("/_next", StaticFiles(directory=str(next_assets_dir)), name="next_assets")
+    logger.info(f"Mounted /_next from {next_assets_dir}")
+
+# Mount Next.js /app directory
 if out_dir.exists():
     demo.app.mount("/app", StaticFiles(directory=str(out_dir), html=True), name="nextjs_dashboard")
-    logger.info(f"Mounted Next.js static build from {out_dir} at /app")
-else:
-    logger.warning("dashboard/out directory not found!")
+
+# Direct route for root URL to serve the Next.js dark-mode dashboard
+@demo.app.get("/", response_class=HTMLResponse)
+async def serve_root_dashboard():
+    index_file = out_dir / "index.html"
+    if index_file.exists():
+        return HTMLResponse(content=index_file.read_text(encoding="utf-8"))
+    return HTMLResponse(content="<h1>Dashboard building... Please refresh in a moment.</h1>")
+
+@demo.app.get("/favicon.ico")
+async def serve_favicon():
+    fav = out_dir / "favicon.ico"
+    if fav.exists():
+        return FileResponse(str(fav))
+    return HTMLResponse(content="", status_code=404)
 
 # Include REST API routes from src.api.main
 demo.app.include_router(api_app.router)
@@ -104,5 +90,5 @@ if __name__ == "__main__":
     worker_thread = threading.Thread(target=start_worker, daemon=True)
     worker_thread.start()
 
-    # Launch Gradio server on Hugging Face port 7860
-    demo.launch(server_name="0.0.0.0", server_port=7860, css=custom_css)
+    # Launch server on Hugging Face port 7860
+    demo.launch(server_name="0.0.0.0", server_port=7860)
