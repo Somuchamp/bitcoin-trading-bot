@@ -1,0 +1,22 @@
+# Environments & dependencies
+venv/
+.venv/
+env/
+node_modules/
+dashboard/node_modules/
+dashboard/.next/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# Local system files
+.env
+.DS_Store
+Thumbs.db
+
+# Large historical datasets and caches (not needed for live trading)
+data/processed/*.csv
+data/raw/*.csv
+data/*.db
+data/*.sqlite
+

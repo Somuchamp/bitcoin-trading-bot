@@ -1,0 +1,43 @@
+# Bitcoin AI Market Prediction & Analytics Platform Configuration
+
+market:
+  symbol: "BTCUSDT"
+  timeframe: "1h"
+  exchange: "binance"
+
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  models_dir: "models"
+  reports_dir: "reports"
+  db_path: "sqlite:///./data/bitcoin_platform.db"
+
+features:
+  version: "v2"
+  rsi_period: 14
+  atr_period: 14
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  volatility_period: 24
+
+target:
+  threshold: 0.0015  # ±0.15% for neutral class
+  horizon: "1h"
+
+model:
+  version: "v2"
+  type: "xgboost"
+  random_seed: 42
+  test_size: 0.15
+  validation_size: 0.15
+
+backtest:
+  initial_capital: 10000.0
+  fee_rate: 0.0010
+  slippage_rate: 0.0005
+  long_threshold: 0.60
+  short_threshold: 0.40
+
+logging:
+  level: "INFO"

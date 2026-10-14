@@ -1,0 +1,15 @@
+{
+    "total_rows": 49972,
+    "start_time": "2021-01-01T00:00:00+00:00",
+    "end_time": "2026-09-14T17:00:00+00:00",
+    "missing_values": {},
+    "duplicate_timestamps": 0,
+    "is_chronological": true,
+    "timestamp_gaps": 7,
+    "missing_candles": 14,
+    "invalid_ohlc_rows": 0,
+    "non_positive_prices": 0,
+    "negative_volume": 0,
+    "zero_volume": 2,
+    "status": "passed"
+}
