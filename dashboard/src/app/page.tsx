@@ -83,27 +83,39 @@ interface Portfolio {
   recent_trades: Trade[];
 }
 
-// ── Dynamic URL Helpers (works for both localhost and cloud/HuggingFace) ────
+// ── Dynamic URL Helpers (works for localhost, Vercel, and cloud) ────
 const getApiBase = () => {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
   if (typeof window !== "undefined") {
     if (window.location.port === "3000") {
       return `http://${window.location.hostname}:8000`;
     }
+    if (window.location.hostname.includes("vercel.app") || window.location.hostname.includes("vercel.sh")) {
+      return "https://soumyadeep-04-btc-trader.hf.space";
+    }
     return window.location.origin;
   }
-  return "http://localhost:8000";
+  return "https://soumyadeep-04-btc-trader.hf.space";
 };
 
 const getWsUrl = () => {
+  if (process.env.NEXT_PUBLIC_WS_URL) {
+    return process.env.NEXT_PUBLIC_WS_URL;
+  }
   if (typeof window !== "undefined") {
-    const isHttps = window.location.protocol === "https:";
-    const protocol = isHttps ? "wss:" : "ws:";
     if (window.location.port === "3000") {
       return `ws://${window.location.hostname}:8000/ws/price`;
     }
+    if (window.location.hostname.includes("vercel.app") || window.location.hostname.includes("vercel.sh")) {
+      return "wss://soumyadeep-04-btc-trader.hf.space/ws/price";
+    }
+    const isHttps = window.location.protocol === "https:";
+    const protocol = isHttps ? "wss:" : "ws:";
     return `${protocol}//${window.location.host}/ws/price`;
   }
-  return "ws://localhost:8000/ws/price";
+  return "wss://soumyadeep-04-btc-trader.hf.space/ws/price";
 };
 
 // ── Constants ────────────────────────────────────────────────────────────────

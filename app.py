@@ -76,6 +76,16 @@ async def serve_favicon():
         return FileResponse(str(fav))
     return HTMLResponse(content="", status_code=404)
 
+from fastapi.middleware.cors import CORSMiddleware
+
+demo.app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Include REST API routes from src.api.main
 demo.app.include_router(api_app.router)
 
