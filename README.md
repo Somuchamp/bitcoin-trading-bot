@@ -1,4 +1,15 @@
+---
+title: BTC Autonomous Trading Platform
+emoji: 📈
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Bitcoin AI Market Prediction & Analytics Platform
+
 
 A complete, production-oriented MVP platform that ingests Bitcoin market data, cleans and validates it, calculates features, trains XGBoost models, generates probabilistic predictions, backtests strategies, and exposes predictions through an API and a Next.js dashboard.
 
