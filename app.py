@@ -76,19 +76,13 @@ if out_dir.exists():
     demo.app.mount("/app", StaticFiles(directory=str(out_dir), html=True), name="nextjs_dashboard")
 
 if __name__ == "__main__":
-    import time
+    import uvicorn
 
     # Start live worker in background daemon thread
     worker_thread = threading.Thread(target=start_worker, daemon=True)
     worker_thread.start()
 
-    # Launch server on Hugging Face port 7860
-    demo.launch(server_name="0.0.0.0", server_port=7860, prevent_thread_lock=True)
-
-    # Mount FastAPI backend onto the live running Gradio server
-    demo.app.mount("/api", api_app)
-    logger.info("FastAPI backend mounted at /api on the live server.")
-
-    # Keep main process alive
-    while True:
-        time.sleep(3600)
+    # Mount Gradio onto api_app so /api/v1/... routes take priority and are never masked
+    combined_app = gr.mount_gradio_app(api_app, demo, path="/")
+    logger.info("Serving combined FastAPI + Gradio app on port 7860...")
+    uvicorn.run(combined_app, host="0.0.0.0", port=7860)

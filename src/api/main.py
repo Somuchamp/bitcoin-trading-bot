@@ -214,10 +214,13 @@ def get_model_status():
 @app.get("/api/v1/portfolio")
 def get_portfolio(db: Session = Depends(get_db)):
     """Returns the live paper trading portfolio — balance, P&L, open position, trade history."""
-    from src.prediction.worker import _worker_instance
-    latest_price = _last_tick["price_usd"] if _last_tick else None
-    if _worker_instance is not None:
-        return _worker_instance.trader.portfolio_summary(current_price=latest_price)
+    try:
+        from src.prediction.worker import _worker_instance
+        latest_price = _last_tick["price_usd"] if _last_tick else None
+        if _worker_instance is not None:
+            return _worker_instance.trader.portfolio_summary(current_price=latest_price)
+    except Exception:
+        pass
 
     # Fallback / process-isolated read from DB
     trades = db.query(TradeRecord).order_by(desc(TradeRecord.closed_at)).limit(20).all()
