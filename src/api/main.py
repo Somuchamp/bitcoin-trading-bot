@@ -283,6 +283,7 @@ def get_portfolio(db: Session = Depends(get_db)):
         "max_drawdown_pct": round(max(0.0, max_dd), 2),
         "open_position": open_pos_dict,
         "recent_trades": trade_dicts,
+    }
 
 # Register alias routes without '/api' prefix so mounting at '/api' works seamlessly
 for _r in list(app.routes):
