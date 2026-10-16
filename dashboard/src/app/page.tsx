@@ -163,10 +163,19 @@ export default function Dashboard() {
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 
+  const BINANCE_DIRECT_WS = "wss://stream.binance.com:9443/ws/btcusdt@aggTrade";
+
   const connectWs = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
     setWsStatus("connecting");
-    const ws = new WebSocket(getWsUrl());
+
+    // In cloud deployments (Cloudflare Workers, Vercel, Netlify), connect directly to Binance
+    // for sub-second zero-proxy real-time ticks. In local dev, use local backend.
+    const targetWsUrl = (typeof window !== "undefined" && isExternalHost(window.location.hostname))
+      ? BINANCE_DIRECT_WS
+      : getWsUrl();
+
+    const ws = new WebSocket(targetWsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => setWsStatus("live");
@@ -174,17 +183,31 @@ export default function Dashboard() {
     ws.onmessage = (evt) => {
       try {
         const data = JSON.parse(evt.data);
-        const priceUsdt = parseFloat(data.price_usdt);
-        const priceUsd  = parseFloat(data.price_usd);
-        const rate      = parseFloat(data.usdt_usd_rate);
-        const now = new Date(data.timestamp);
-        const timeLabel = now.toLocaleTimeString("en-IN", { hour12: false });
+        let priceUsdt: number;
+        let priceUsd: number;
+        let rate = usdtRate;
+        let tsMs: number;
+
+        if (data.p) {
+          // Direct Binance aggTrade format: { p: price, T: timestampMs, ... }
+          priceUsdt = parseFloat(data.p);
+          priceUsd = priceUsdt * (rate || 1.0);
+          tsMs = typeof data.T === "number" ? data.T : Date.now();
+        } else {
+          // Backend proxy format
+          priceUsdt = parseFloat(data.price_usdt);
+          priceUsd  = parseFloat(data.price_usd);
+          rate      = parseFloat(data.usdt_usd_rate) || rate;
+          tsMs = typeof data.timestamp === "number" ? data.timestamp : new Date(data.timestamp || Date.now()).getTime();
+        }
+
+        const timeLabel = new Date(tsMs).toLocaleTimeString("en-IN", { hour12: false });
 
         setLivePriceUsdt(priceUsdt);
         setLivePriceUsd((prev) => { setPrevPriceUsd(prev); return priceUsd; });
         setUsdtRate(rate);
         setTicks((prev) => {
-          const next = [...prev, { price_usdt: priceUsdt, price_usd: priceUsd, usdt_usd_rate: rate, timestamp: data.timestamp, time: timeLabel }];
+          const next = [...prev, { price_usdt: priceUsdt, price_usd: priceUsd, usdt_usd_rate: rate, timestamp: tsMs, time: timeLabel }];
           return next.slice(-MAX_TICKS);
         });
       } catch (e) {
@@ -194,11 +217,11 @@ export default function Dashboard() {
 
     ws.onclose = () => {
       setWsStatus("disconnected");
-      reconnectTimer.current = setTimeout(connectWs, 3000);
+      reconnectTimer.current = setTimeout(connectWs, 2500);
     };
 
     ws.onerror = () => ws.close();
-  }, []);
+  }, [usdtRate]);
 
   useEffect(() => {
     connectWs();
@@ -208,7 +231,7 @@ export default function Dashboard() {
     };
   }, [connectWs]);
 
-  // ── Polling REST endpoints (Predictions, Alerts, Portfolio) ────────────────
+  
   const loadPortfolio = useCallback(async () => {
     try {
       const res = await fetch(`${getApiBase()}/api/v1/portfolio`);
