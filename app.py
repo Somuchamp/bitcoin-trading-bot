@@ -76,9 +76,26 @@ if out_dir.exists():
     demo.app.mount("/app", StaticFiles(directory=str(out_dir), html=True), name="nextjs_dashboard")
 
 if __name__ == "__main__":
+    import time
+
     # Start live worker in background daemon thread
     worker_thread = threading.Thread(target=start_worker, daemon=True)
     worker_thread.start()
 
     # Launch server on Hugging Face port 7860
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    demo.launch(server_name="0.0.0.0", server_port=7860, prevent_thread_lock=True)
+
+    # Attach CORS middleware and mount FastAPI backend on the actual running app
+    demo.app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    demo.app.mount("/api", api_app)
+    logger.info("FastAPI backend mounted at /api on the live server.")
+
+    # Keep main process alive
+    while True:
+        time.sleep(3600)
