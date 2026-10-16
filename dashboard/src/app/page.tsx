@@ -86,11 +86,12 @@ interface Portfolio {
 // ── Dynamic URL Helpers (works for localhost, GitHub Pages, Netlify, Cloudflare, Vercel, and cloud) ────
 const isExternalHost = (host: string) => {
   return (
+    host.includes("workers.dev") ||
+    host.includes("pages.dev") ||
     host.includes("vercel.app") ||
     host.includes("vercel.sh") ||
     host.includes("github.io") ||
     host.includes("netlify.app") ||
-    host.includes("pages.dev") ||
     host.includes("onrender.com")
   );
 };
