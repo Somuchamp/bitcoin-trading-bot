@@ -83,7 +83,18 @@ interface Portfolio {
   recent_trades: Trade[];
 }
 
-// ── Dynamic URL Helpers (works for localhost, Vercel, and cloud) ────
+// ── Dynamic URL Helpers (works for localhost, GitHub Pages, Netlify, Cloudflare, Vercel, and cloud) ────
+const isExternalHost = (host: string) => {
+  return (
+    host.includes("vercel.app") ||
+    host.includes("vercel.sh") ||
+    host.includes("github.io") ||
+    host.includes("netlify.app") ||
+    host.includes("pages.dev") ||
+    host.includes("onrender.com")
+  );
+};
+
 const getApiBase = () => {
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL;
@@ -92,7 +103,7 @@ const getApiBase = () => {
     if (window.location.port === "3000") {
       return `http://${window.location.hostname}:8000`;
     }
-    if (window.location.hostname.includes("vercel.app") || window.location.hostname.includes("vercel.sh")) {
+    if (isExternalHost(window.location.hostname)) {
       return "https://soumyadeep-04-btc-trader.hf.space";
     }
     return window.location.origin;
@@ -108,7 +119,7 @@ const getWsUrl = () => {
     if (window.location.port === "3000") {
       return `ws://${window.location.hostname}:8000/ws/price`;
     }
-    if (window.location.hostname.includes("vercel.app") || window.location.hostname.includes("vercel.sh")) {
+    if (isExternalHost(window.location.hostname)) {
       return "wss://soumyadeep-04-btc-trader.hf.space/ws/price";
     }
     const isHttps = window.location.protocol === "https:";
