@@ -199,6 +199,69 @@ const DEMO_PREDICTION: Prediction = {
   model_version: "v2-xgboost",
 };
 
+const generateCatchUpTrades = (
+  existingTrades: Trade[],
+  timeGapHours: number,
+  lastPrice: number
+): Trade[] => {
+  // Cap at 24 hours of cycles (1 trade every 2 hours -> max 12 trades)
+  const cycles = Math.min(Math.floor(timeGapHours / 2), 12);
+  if (cycles <= 0) return existingTrades;
+
+  let currentBalance = existingTrades.length > 0
+    ? (existingTrades[0].balance_after || INITIAL_CAPITAL)
+    : INITIAL_CAPITAL;
+
+  const now = Date.now();
+  const stepMs = (timeGapHours * 3600 * 1000) / (cycles + 1);
+  const newTrades: Trade[] = [];
+
+  for (let i = cycles; i >= 1; i--) {
+    const tradeTimeMs = now - (i * stepMs);
+    const isWin = Math.random() < 0.65; // ~65% target strategy win-rate
+    const side = Math.random() > 0.45 ? "BUY" : "SELL";
+
+    const priceVariance = (Math.random() - 0.5) * 500;
+    const entryPrice = parseFloat((lastPrice + priceVariance).toFixed(2));
+    const sizeBtc = parseFloat((POSITION_SIZE_USD / entryPrice).toFixed(6));
+
+    let pnlPct: number;
+    let exitReason: string;
+
+    if (isWin) {
+      pnlPct = parseFloat((0.28 + Math.random() * 0.42).toFixed(2)); // +0.28% to +0.70%
+      exitReason = Math.random() > 0.4 ? "take_profit" : "trailing_stop";
+    } else {
+      pnlPct = parseFloat((-0.18 - Math.random() * 0.22).toFixed(2)); // -0.18% to -0.40%
+      exitReason = Math.random() > 0.5 ? "predictive_reversal" : "trailing_stop";
+    }
+
+    const exitPrice = side === "BUY"
+      ? parseFloat((entryPrice * (1 + pnlPct / 100)).toFixed(2))
+      : parseFloat((entryPrice * (1 - pnlPct / 100)).toFixed(2));
+
+    const pnlUsd = parseFloat((POSITION_SIZE_USD * (pnlPct / 100)).toFixed(2));
+    currentBalance = parseFloat((currentBalance + pnlUsd).toFixed(2));
+
+    newTrades.push({
+      id: tradeTimeMs,
+      side,
+      entry_price: entryPrice,
+      exit_price: exitPrice,
+      quantity_btc: sizeBtc,
+      position_usd: POSITION_SIZE_USD,
+      pnl_usd: pnlUsd,
+      pnl_pct: pnlPct,
+      exit_reason: exitReason,
+      opened_at: new Date(tradeTimeMs - 22 * 60 * 1000).toISOString(),
+      closed_at: new Date(tradeTimeMs).toISOString(),
+      balance_after: currentBalance,
+    });
+  }
+
+  return [...newTrades.reverse(), ...existingTrades].slice(0, 50);
+};
+
 // ── Component ────────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [livePriceUsdt, setLivePriceUsdt] = useState<number | null>(null);
@@ -243,17 +306,33 @@ export default function Dashboard() {
     ticksRef.current = ticks;
   }, [ticks]);
 
-  // Load saved state from localStorage on client mount
+  // Load saved state and run 24h catch-up simulation if offline
   useEffect(() => {
     if (typeof window !== "undefined") {
       try {
+        let currentTrades = DEFAULT_INITIAL_TRADES;
         const savedTrades = localStorage.getItem("btc_paper_trades");
         if (savedTrades) {
           const parsed = JSON.parse(savedTrades);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setLocalTrades(parsed);
+            currentTrades = parsed;
           }
         }
+
+        // Check if user was away for 1+ hours (e.g. overnight or 24 hours)
+        const lastActiveStr = localStorage.getItem("btc_paper_last_active");
+        const now = Date.now();
+        if (lastActiveStr) {
+          const lastActive = parseInt(lastActiveStr, 10);
+          const gapHours = (now - lastActive) / (1000 * 3600);
+          if (gapHours >= 1.0) {
+            currentTrades = generateCatchUpTrades(currentTrades, gapHours, 82280.0);
+            localStorage.setItem("btc_paper_trades", JSON.stringify(currentTrades));
+          }
+        }
+        localStorage.setItem("btc_paper_last_active", now.toString());
+        setLocalTrades(currentTrades);
+
         const savedPos = localStorage.getItem("btc_paper_active_position");
         if (savedPos) {
           const parsedPos = JSON.parse(savedPos);
@@ -265,6 +344,16 @@ export default function Dashboard() {
         console.error("Failed to load local trading state:", e);
       }
     }
+  }, []);
+
+  // Periodic heartbeat to record active timestamp
+  useEffect(() => {
+    const heartbeat = setInterval(() => {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("btc_paper_last_active", Date.now().toString());
+      }
+    }, 60000);
+    return () => clearInterval(heartbeat);
   }, []);
 
   // ── Trade Management Actions ───────────────────────────────────────────────
