@@ -58,8 +58,8 @@ demo.app.add_middleware(
     allow_headers=["*"],
 )
 
-# 5. Include all REST APIs from src.api.main
-demo.app.include_router(api_app.router)
+# 5. Mount FastAPI backend APIs onto demo.app at /api
+demo.app.mount("/api", api_app)
 
 # 6. Mount Binance WebSocket price stream
 demo.app.add_api_websocket_route("/ws/price", websocket_price)

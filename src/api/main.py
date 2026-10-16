@@ -283,12 +283,13 @@ def get_portfolio(db: Session = Depends(get_db)):
         "max_drawdown_pct": round(max(0.0, max_dd), 2),
         "open_position": open_pos_dict,
         "recent_trades": trade_dicts,
-    }
 
+# Register alias routes without '/api' prefix so mounting at '/api' works seamlessly
+for _r in list(app.routes):
+    if hasattr(_r, 'path') and _r.path.startswith('/api/v1/'):
+        _subpath = _r.path[len('/api'):]
+        app.add_api_route(_subpath, _r.endpoint, methods=_r.methods, response_model=getattr(_r, 'response_model', None))
 
-
-
-# ---------------------------------------------------------------------------
 # Live Price WebSocket
 # ---------------------------------------------------------------------------
 
