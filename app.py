@@ -85,14 +85,7 @@ if __name__ == "__main__":
     # Launch server on Hugging Face port 7860
     demo.launch(server_name="0.0.0.0", server_port=7860, prevent_thread_lock=True)
 
-    # Attach CORS middleware and mount FastAPI backend on the actual running app
-    demo.app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # Mount FastAPI backend onto the live running Gradio server
     demo.app.mount("/api", api_app)
     logger.info("FastAPI backend mounted at /api on the live server.")
 
