@@ -1203,19 +1203,21 @@ export default function Dashboard() {
               <thead className="bg-slate-900/60 text-slate-400 uppercase border-b border-slate-800">
                 <tr>
                   <th className="py-2.5 px-3">Side</th>
+                  <th className="py-2.5 px-3">Invested ($ USD)</th>
                   <th className="py-2.5 px-3">Entry Price</th>
                   <th className="py-2.5 px-3">Exit Price</th>
                   <th className="py-2.5 px-3">Size (BTC)</th>
-                  <th className="py-2.5 px-3">P&amp;L (USD)</th>
-                  <th className="py-2.5 px-3">P&amp;L (%)</th>
+                  <th className="py-2.5 px-3">Net Profit/Loss ($)</th>
+                  <th className="py-2.5 px-3">Return (%)</th>
                   <th className="py-2.5 px-3">Withdrawal Reason</th>
+                  <th className="py-2.5 px-3">Balance After</th>
                   <th className="py-2.5 px-3">Closed Time</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
                 {tradesToDisplay.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-6 text-center text-slate-600 font-sans">
+                    <td colSpan={10} className="py-6 text-center text-slate-600 font-sans">
                       No trades logged yet. Click &quot;BUY BTC&quot; or let the Autonomous Scalper trade live ticks.
                     </td>
                   </tr>
@@ -1223,6 +1225,7 @@ export default function Dashboard() {
                   tradesToDisplay.map((t, idx) => {
                     const isWin = (t.pnl_usd ?? 0) > 0;
                     const reason = t.exit_reason || t.reason || "signal";
+                    const investedAmount = t.position_usd || (t.entry_price && t.quantity_btc ? t.entry_price * t.quantity_btc : 100);
                     return (
                       <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
                         <td className="py-2.5 px-3">
@@ -1231,6 +1234,9 @@ export default function Dashboard() {
                           }`}>
                             {t.side}
                           </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-semibold text-white">
+                          ${investedAmount.toFixed(2)}
                         </td>
                         <td className="py-2.5 px-3 text-slate-300">${t.entry_price?.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
                         <td className="py-2.5 px-3 text-slate-300">${t.exit_price?.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
@@ -1255,6 +1261,9 @@ export default function Dashboard() {
                           }`}>
                             {reason.replace("_", " ")}
                           </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-bold text-white">
+                          ${(t.balance_after || 1000).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="py-2.5 px-3 text-slate-500 text-[11px]">
                           {t.closed_at ? new Date(t.closed_at).toLocaleTimeString() : "—"}
