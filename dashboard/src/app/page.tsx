@@ -941,7 +941,7 @@ export default function Dashboard() {
             <div className="text-xl font-mono font-bold text-white">
               ${currentBalanceUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-            <p className="text-slate-600 text-[11px] mt-0.5">Initial: ${initialCapital}</p>
+            <p className="text-slate-400 text-[11px] mt-0.5 font-medium">Invested: $100.00 / trade</p>
           </div>
 
           <div className="bg-[#131722] rounded-xl p-4 border border-slate-800">
@@ -983,24 +983,31 @@ export default function Dashboard() {
           <div className="bg-[#131722] rounded-xl p-4 border border-slate-800">
             <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Active Position</p>
             {hasOpenPos && effectiveOpenPos ? (
-              <div className="flex items-center gap-1.5">
-                <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                  effectiveOpenPos.side === "BUY" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
-                }`}>
-                  {effectiveOpenPos.side}
-                </span>
-                <span className="text-xs text-slate-300 font-mono">
-                  ${effectiveOpenPos.entry_price.toLocaleString()}
-                </span>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                    effectiveOpenPos.side === "BUY" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
+                  }`}>
+                    {effectiveOpenPos.side}
+                  </span>
+                  <span className="text-xs text-white font-mono font-bold">
+                    $100.00
+                  </span>
+                </div>
+                <p className="text-slate-400 text-[11px] mt-0.5 font-mono">
+                  Stop: ${effectiveOpenPos?.stop_loss_price?.toFixed(0)}
+                </p>
               </div>
             ) : (
-              <div className="text-sm font-semibold text-slate-500 flex items-center gap-1">
-                <span>HOLDING CASH</span>
+              <div>
+                <div className="text-sm font-semibold text-slate-500 flex items-center gap-1">
+                  <span>HOLDING CASH</span>
+                </div>
+                <p className="text-slate-600 text-[11px] mt-0.5">
+                  Invested: $0.00 (In Cash)
+                </p>
               </div>
             )}
-            <p className="text-slate-600 text-[11px] mt-0.5">
-              {hasOpenPos ? `Stop: $${effectiveOpenPos?.stop_loss_price?.toFixed(0)}` : "Ready to enter"}
-            </p>
           </div>
         </div>
 
