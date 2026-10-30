@@ -110,12 +110,10 @@ const getApiBase = () => {
     if (window.location.port === "3000") {
       return `http://${window.location.hostname}:8000`;
     }
-    if (isExternalHost(window.location.hostname)) {
-      return "https://soumyadeep-04-btc-trader.hf.space";
-    }
+    // Universal Cloudflare edge API (same-origin sync across all devices)
     return window.location.origin;
   }
-  return "https://soumyadeep-04-btc-trader.hf.space";
+  return "";
 };
 
 const getWsUrl = () => {
@@ -421,6 +419,26 @@ export default function Dashboard() {
     }
   }, []);
 
+  // ── Universal Backend Portfolio & Prediction Polling ─────────────────────
+  const loadPortfolio = useCallback(async () => {
+    try {
+      const res = await fetch(`${getApiBase()}/api/v1/portfolio`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.recent_trades) && data.recent_trades.length > 0) {
+          setBackendPortfolio(data);
+          if (data.open_position) {
+            setActivePosition(data.open_position);
+          } else if (data.open_position === null) {
+            setActivePosition(null);
+          }
+        }
+      }
+    } catch {
+      // Local fallback
+    }
+  }, []);
+
   const closePosition = useCallback((exitReason: string = "manual_close", forcedPrice?: number) => {
     const pos = activePosRef.current;
     if (!pos) return;
@@ -469,7 +487,17 @@ export default function Dashboard() {
       confidence: 0.75,
       status: "CLOSED",
     });
-  }, [livePriceUsd, saveTradesState, saveActivePosState]);
+
+    try {
+      fetch(`${getApiBase()}/api/v1/trade/close`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ exit_price: exitPrice, reason: exitReason }),
+      }).then(() => loadPortfolio()).catch(() => {});
+    } catch {
+      // Ignored
+    }
+  }, [livePriceUsd, saveTradesState, saveActivePosState, loadPortfolio]);
 
   const openPosition = useCallback((side: "BUY" | "SELL", customPrice?: number, triggerReason: string = "manual_demo") => {
     if (activePosRef.current) {
@@ -509,15 +537,32 @@ export default function Dashboard() {
       confidence: 0.72,
       status: "OPEN",
     });
-  }, [livePriceUsd, saveActivePosState]);
+
+    try {
+      fetch(`${getApiBase()}/api/v1/trade/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ side, price: entryPrice, reason: triggerReason }),
+      }).then(() => loadPortfolio()).catch(() => {});
+    } catch {
+      // Ignored
+    }
+  }, [livePriceUsd, saveActivePosState, loadPortfolio]);
 
   const resetTradingHistory = useCallback(() => {
     if (confirm("Reset paper trading balance to $1,000.00 and restore baseline performance records?")) {
       saveActivePosState(null);
       const freshHistory = generateMultiDayTradeHistory(livePriceUsd || 80500.0);
       saveTradesState(freshHistory);
+      try {
+        fetch(`${getApiBase()}/api/v1/trading/reset`, { method: "POST" })
+          .then(() => loadPortfolio())
+          .catch(() => {});
+      } catch {
+        // Ignored
+      }
     }
-  }, [livePriceUsd, saveActivePosState, saveTradesState]);
+  }, [livePriceUsd, saveActivePosState, saveTradesState, loadPortfolio]);
 
   // ── Binance WebSocket Connection ───────────────────────────────────────────
   const BINANCE_DIRECT_WS = "wss://stream.binance.com:9443/ws/btcusdt@aggTrade";
@@ -722,21 +767,6 @@ export default function Dashboard() {
     };
   }, []);
 
-  // ── Optional Backend Portfolio & Dynamic Prediction Polling ────────────────
-  const loadPortfolio = useCallback(async () => {
-    try {
-      const res = await fetch(`${getApiBase()}/api/v1/portfolio`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data && Array.isArray(data.recent_trades) && data.recent_trades.length > 0) {
-          setBackendPortfolio(data);
-        }
-      }
-    } catch {
-      // Backend asleep or unreachable — local autonomous engine active
-    }
-  }, []);
-
   useEffect(() => {
     const loadPrediction = async () => {
       try {
@@ -778,7 +808,7 @@ export default function Dashboard() {
     const interval = setInterval(() => {
       loadPrediction();
       loadPortfolio();
-    }, 15 * 1000);
+    }, 3500);
     return () => clearInterval(interval);
   }, [loadPortfolio, livePriceUsd, prevPriceUsd]);
 
@@ -1312,8 +1342,9 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs px-2.5 py-1 rounded bg-slate-800 text-slate-400 font-mono">
-                Storage: Auto-Synced
+              <span className="text-xs px-2.5 py-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Cloudflare Sync: Active (Universal)
               </span>
             </div>
           </div>

@@ -5,6 +5,7 @@ env/
 node_modules/
 dashboard/node_modules/
 dashboard/.next/
+.wrangler/
 .pytest_cache/
 __pycache__/
 *.pyc

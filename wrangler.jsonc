@@ -2,7 +2,11 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "bitcoin-trading-bot",
   "compatibility_date": "2024-10-01",
+  "main": "./worker.js",
   "assets": {
     "directory": "./dashboard/out"
+  },
+  "triggers": {
+    "crons": ["* * * * *"]
   }
 }
