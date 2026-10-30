@@ -6,6 +6,7 @@ xgboost
 joblib
 requests
 httpx
+websockets
 fastapi
 uvicorn
 pydantic
@@ -14,3 +15,4 @@ SQLAlchemy
 python-dotenv
 PyYAML
 plotly
+pytest

@@ -32,7 +32,7 @@ worker:
 	python -m src.prediction.worker
 
 test:
-	pytest tests/
+	PYTHONPATH=. pytest tests/
 
 docker-up:
 	docker-compose up --build -d
