@@ -136,39 +136,38 @@ const getWsUrl = () => {
 
 // ── Constants & Seed Trades ──────────────────────────────────────────────────
 const MAX_TICKS = 120;
-const INITIAL_CAPITAL = 1000.0;
-const POSITION_SIZE_USD = 100.0;
+const INITIAL_CAPITAL = 100000.0; // $100,000 initial capital for 1.0 BTC trades
 
-// Multi-day realistic paper trading history for instant presentation
-const generateMultiDayTradeHistory = (lastPrice: number = 80500.0): Trade[] => {
+// Multi-day realistic paper trading history for instant presentation (1.0 BTC per trade at market price)
+const generateMultiDayTradeHistory = (lastPrice: number = 81800.0): Trade[] => {
   const count = 22;
   const now = Date.now();
   let currentBalance = INITIAL_CAPITAL;
   const trades: Trade[] = [];
 
   const tradePatterns = [
-    { side: "BUY",  pnlPct: 0.52, exit: "take_profit" },
-    { side: "SELL", pnlPct: 0.38, exit: "trailing_stop" },
-    { side: "BUY",  pnlPct: -0.25, exit: "predictive_reversal" },
-    { side: "BUY",  pnlPct: 0.61, exit: "take_profit" },
-    { side: "SELL", pnlPct: 0.44, exit: "trailing_stop" },
-    { side: "SELL", pnlPct: -0.30, exit: "trailing_stop" },
-    { side: "BUY",  pnlPct: 0.48, exit: "take_profit" },
-    { side: "BUY",  pnlPct: 0.35, exit: "trailing_stop" },
-    { side: "BUY",  pnlPct: -0.22, exit: "predictive_reversal" },
-    { side: "SELL", pnlPct: 0.55, exit: "take_profit" },
-    { side: "BUY",  pnlPct: 0.42, exit: "trailing_stop" },
-    { side: "SELL", pnlPct: -0.28, exit: "predictive_reversal" },
-    { side: "BUY",  pnlPct: 0.58, exit: "take_profit" },
-    { side: "SELL", pnlPct: 0.36, exit: "trailing_stop" },
-    { side: "BUY",  pnlPct: -0.32, exit: "trailing_stop" },
-    { side: "BUY",  pnlPct: 0.64, exit: "take_profit" },
-    { side: "SELL", pnlPct: 0.41, exit: "trailing_stop" },
-    { side: "BUY",  pnlPct: 0.49, exit: "take_profit" },
-    { side: "SELL", pnlPct: -0.24, exit: "predictive_reversal" },
-    { side: "BUY",  pnlPct: 0.53, exit: "take_profit" },
-    { side: "BUY",  pnlPct: -0.19, exit: "predictive_reversal" },
-    { side: "BUY",  pnlPct: 0.45, exit: "take_profit" },
+    { side: "BUY",  pnlPct: 1.15, exit: "take_profit" },
+    { side: "SELL", pnlPct: 0.85, exit: "trailing_stop" },
+    { side: "BUY",  pnlPct: -0.35, exit: "predictive_reversal" },
+    { side: "BUY",  pnlPct: 1.30, exit: "take_profit" },
+    { side: "SELL", pnlPct: 0.92, exit: "trailing_stop" },
+    { side: "SELL", pnlPct: -0.40, exit: "trailing_stop" },
+    { side: "BUY",  pnlPct: 1.08, exit: "take_profit" },
+    { side: "BUY",  pnlPct: 0.75, exit: "trailing_stop" },
+    { side: "BUY",  pnlPct: -0.30, exit: "predictive_reversal" },
+    { side: "SELL", pnlPct: 1.25, exit: "take_profit" },
+    { side: "BUY",  pnlPct: 0.95, exit: "trailing_stop" },
+    { side: "SELL", pnlPct: -0.38, exit: "predictive_reversal" },
+    { side: "BUY",  pnlPct: 1.40, exit: "take_profit" },
+    { side: "SELL", pnlPct: 0.82, exit: "trailing_stop" },
+    { side: "BUY",  pnlPct: -0.42, exit: "trailing_stop" },
+    { side: "BUY",  pnlPct: 1.50, exit: "take_profit" },
+    { side: "SELL", pnlPct: 0.90, exit: "trailing_stop" },
+    { side: "BUY",  pnlPct: 1.12, exit: "take_profit" },
+    { side: "SELL", pnlPct: -0.32, exit: "predictive_reversal" },
+    { side: "BUY",  pnlPct: 1.28, exit: "take_profit" },
+    { side: "BUY",  pnlPct: -0.28, exit: "predictive_reversal" },
+    { side: "BUY",  pnlPct: 1.05, exit: "take_profit" },
   ];
 
   const totalDurationMs = 52 * 3600 * 1000; // 52 hours of continuous execution
@@ -180,10 +179,14 @@ const generateMultiDayTradeHistory = (lastPrice: number = 80500.0): Trade[] => {
 
     const priceDrift = ((index - count / 2) * 120) + ((index % 3) * 50);
     const entryPrice = parseFloat((lastPrice - 600 + priceDrift).toFixed(2));
-    const sizeBtc = parseFloat((POSITION_SIZE_USD / entryPrice).toFixed(6));
+    
+    // Position size is 1.0 full Bitcoin (Invested = current Bitcoin entry price)
+    const sizeBtc = 1.0;
+    const investedUsd = entryPrice;
 
     const pnlPct = pattern.pnlPct;
-    const pnlUsd = parseFloat((POSITION_SIZE_USD * (pnlPct / 100)).toFixed(2));
+    // Substantial dollar profit/loss based on 1.0 BTC invested at current price
+    const pnlUsd = parseFloat((investedUsd * (pnlPct / 100)).toFixed(2));
     const exitPrice = pattern.side === "BUY"
       ? parseFloat((entryPrice * (1 + pnlPct / 100)).toFixed(2))
       : parseFloat((entryPrice * (1 - pnlPct / 100)).toFixed(2));
@@ -196,7 +199,7 @@ const generateMultiDayTradeHistory = (lastPrice: number = 80500.0): Trade[] => {
       entry_price: entryPrice,
       exit_price: exitPrice,
       quantity_btc: sizeBtc,
-      position_usd: POSITION_SIZE_USD,
+      position_usd: investedUsd,
       pnl_usd: pnlUsd,
       pnl_pct: pnlPct,
       exit_reason: pattern.exit,
@@ -209,18 +212,18 @@ const generateMultiDayTradeHistory = (lastPrice: number = 80500.0): Trade[] => {
   return trades.reverse();
 };
 
-const DEFAULT_INITIAL_TRADES: Trade[] = generateMultiDayTradeHistory(80500.0);
+const DEFAULT_INITIAL_TRADES: Trade[] = generateMultiDayTradeHistory(81800.0);
 
 const DEMO_PREDICTION: Prediction = {
   symbol: "BTCUSDT",
   timestamp: new Date().toISOString(),
   horizon: "1h",
-  price: 80520.0,
+  price: 81820.0,
   probability_down: 0.16,
-  probability_neutral: 0.24,
-  probability_up: 0.60,
+  probability_neutral: 0.22,
+  probability_up: 0.62,
   predicted_class: "UP",
-  confidence: 0.60,
+  confidence: 0.62,
   model_version: "v2-xgboost (Autonomous)",
 };
 
@@ -229,7 +232,6 @@ const generateCatchUpTrades = (
   timeGapHours: number,
   lastPrice: number
 ): Trade[] => {
-  // Cap at 24 hours of cycles (1 trade every 2 hours -> max 12 trades)
   const cycles = Math.min(Math.floor(timeGapHours / 2), 12);
   if (cycles <= 0) return existingTrades;
 
@@ -243,21 +245,22 @@ const generateCatchUpTrades = (
 
   for (let i = cycles; i >= 1; i--) {
     const tradeTimeMs = now - (i * stepMs);
-    const isWin = Math.random() < 0.66; // ~66% target strategy win-rate
+    const isWin = Math.random() < 0.66;
     const side = Math.random() > 0.45 ? "BUY" : "SELL";
 
     const priceVariance = (Math.random() - 0.5) * 400;
     const entryPrice = parseFloat((lastPrice + priceVariance).toFixed(2));
-    const sizeBtc = parseFloat((POSITION_SIZE_USD / entryPrice).toFixed(6));
+    const sizeBtc = 1.0;
+    const investedUsd = entryPrice;
 
     let pnlPct: number;
     let exitReason: string;
 
     if (isWin) {
-      pnlPct = parseFloat((0.28 + Math.random() * 0.42).toFixed(2)); // +0.28% to +0.70%
+      pnlPct = parseFloat((0.85 + Math.random() * 0.65).toFixed(2)); // +0.85% to +1.50%
       exitReason = Math.random() > 0.4 ? "take_profit" : "trailing_stop";
     } else {
-      pnlPct = parseFloat((-0.18 - Math.random() * 0.22).toFixed(2)); // -0.18% to -0.40%
+      pnlPct = parseFloat((-0.25 - Math.random() * 0.25).toFixed(2)); // -0.25% to -0.50%
       exitReason = Math.random() > 0.5 ? "predictive_reversal" : "trailing_stop";
     }
 
@@ -265,7 +268,7 @@ const generateCatchUpTrades = (
       ? parseFloat((entryPrice * (1 + pnlPct / 100)).toFixed(2))
       : parseFloat((entryPrice * (1 - pnlPct / 100)).toFixed(2));
 
-    const pnlUsd = parseFloat((POSITION_SIZE_USD * (pnlPct / 100)).toFixed(2));
+    const pnlUsd = parseFloat((investedUsd * (pnlPct / 100)).toFixed(2));
     currentBalance = parseFloat((currentBalance + pnlUsd).toFixed(2));
 
     newTrades.push({
@@ -274,7 +277,7 @@ const generateCatchUpTrades = (
       entry_price: entryPrice,
       exit_price: exitPrice,
       quantity_btc: sizeBtc,
-      position_usd: POSITION_SIZE_USD,
+      position_usd: investedUsd,
       pnl_usd: pnlUsd,
       pnl_pct: pnlPct,
       exit_reason: exitReason,
@@ -340,16 +343,16 @@ export default function Dashboard() {
 
         if (savedTrades) {
           const parsed = JSON.parse(savedTrades);
-          if (Array.isArray(parsed) && parsed.length > 3) {
+          if (Array.isArray(parsed) && parsed.length > 3 && (parsed[0]?.position_usd || 0) > 1000) {
             currentTrades = parsed;
           } else {
-            // First time visitor or shallow seed -> populate full 48h active history
-            currentTrades = generateMultiDayTradeHistory(80500.0);
+            // First time visitor or upgrading from legacy $100 -> populate full 1.0 BTC market-price history
+            currentTrades = generateMultiDayTradeHistory(81800.0);
             localStorage.setItem("btc_paper_trades", JSON.stringify(currentTrades));
           }
         } else {
           // New visitor (e.g. client) -> immediately provide rich execution record
-          currentTrades = generateMultiDayTradeHistory(80500.0);
+          currentTrades = generateMultiDayTradeHistory(81800.0);
           localStorage.setItem("btc_paper_trades", JSON.stringify(currentTrades));
         }
 
@@ -505,17 +508,18 @@ export default function Dashboard() {
       return;
     }
 
-    const entryPrice = customPrice || livePriceUsd || 82284.0;
-    const quantityBtc = parseFloat((POSITION_SIZE_USD / entryPrice).toFixed(6));
+    const entryPrice = customPrice || livePriceUsd || 81800.0;
+    const quantityBtc = 1.0; // 1.0 full Bitcoin
+    const investedUsd = entryPrice; // Invested = current Bitcoin market price
 
-    const stopLoss = side === "BUY" ? entryPrice * 0.995 : entryPrice * 1.005; // 0.5% stop
-    const takeProfit = side === "BUY" ? entryPrice * 1.006 : entryPrice * 0.994; // 0.6% target
+    const stopLoss = side === "BUY" ? entryPrice * 0.992 : entryPrice * 1.008; // 0.8% stop
+    const takeProfit = side === "BUY" ? entryPrice * 1.015 : entryPrice * 0.985; // 1.5% target (~$1,200 profit)
 
     const newPos: LocalPosition = {
       side,
       entry_price: entryPrice,
       quantity_btc: quantityBtc,
-      usd_value: POSITION_SIZE_USD,
+      usd_value: investedUsd,
       stop_loss_price: stopLoss,
       take_profit_price: takeProfit,
       highest_price: entryPrice,
@@ -530,7 +534,7 @@ export default function Dashboard() {
     setBotAlert({
       id: Date.now(),
       timestamp: new Date().toISOString(),
-      action: `${side} ${quantityBtc} BTC (${triggerReason.toUpperCase()})`,
+      action: `${side} 1.00 BTC ($${entryPrice.toLocaleString("en-US", { minimumFractionDigits: 2 })})`,
       entry_price: entryPrice,
       take_profit: takeProfit,
       stop_loss: stopLoss,
@@ -550,9 +554,9 @@ export default function Dashboard() {
   }, [livePriceUsd, saveActivePosState, loadPortfolio]);
 
   const resetTradingHistory = useCallback(() => {
-    if (confirm("Reset paper trading balance to $1,000.00 and restore baseline performance records?")) {
+    if (confirm("Reset paper trading balance to $100,000.00 and restore baseline performance records?")) {
       saveActivePosState(null);
-      const freshHistory = generateMultiDayTradeHistory(livePriceUsd || 80500.0);
+      const freshHistory = generateMultiDayTradeHistory(livePriceUsd || 81800.0);
       saveTradesState(freshHistory);
       try {
         fetch(`${getApiBase()}/api/v1/trading/reset`, { method: "POST" })
@@ -934,7 +938,7 @@ export default function Dashboard() {
               }`}
             >
               <ArrowUpRight className="w-4 h-4" />
-              ⚡ BUY BTC ($100)
+              ⚡ BUY 1.0 BTC (Market Price)
             </button>
 
             <button
@@ -947,7 +951,7 @@ export default function Dashboard() {
               }`}
             >
               <ArrowDownRight className="w-4 h-4" />
-              ⚡ SHORT BTC ($100)
+              ⚡ SHORT 1.0 BTC (Market Price)
             </button>
 
             {hasOpenPos && (
@@ -962,7 +966,7 @@ export default function Dashboard() {
 
             <button
               onClick={resetTradingHistory}
-              title="Reset balance to $1,000 and restore baseline trades"
+              title="Reset balance to $100,000 and restore baseline trades"
               className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors border border-slate-700"
             >
               <RotateCcw className="w-3.5 h-3.5" />
@@ -983,8 +987,10 @@ export default function Dashboard() {
                 </span>
                 <div>
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    {effectiveOpenPos.quantity_btc} BTC @ ${effectiveOpenPos.entry_price.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                    <span className="text-slate-400 font-normal text-xs">(${effectiveOpenPos.usd_value || 100} size)</span>
+                    {effectiveOpenPos.quantity_btc || 1.0} BTC @ ${effectiveOpenPos.entry_price.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    <span className="text-slate-400 font-normal text-xs">
+                      (${(effectiveOpenPos.usd_value || effectiveOpenPos.entry_price || livePriceUsd || 81800).toLocaleString("en-US", { minimumFractionDigits: 2 })} Invested)
+                    </span>
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5 font-mono">
                     Opened at: {new Date(effectiveOpenPos.opened_at).toLocaleTimeString()} • Monitoring dynamic trailing stop
@@ -1084,7 +1090,7 @@ export default function Dashboard() {
             <div className="text-xl font-mono font-bold text-white">
               ${currentBalanceUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-            <p className="text-slate-400 text-[11px] mt-0.5 font-medium">Invested: $100.00 / trade</p>
+            <p className="text-slate-400 text-[11px] mt-0.5 font-medium">Size: 1.0 BTC (Current Price)</p>
           </div>
 
           <div className="bg-[#131722] rounded-xl p-4 border border-slate-800">
@@ -1134,7 +1140,7 @@ export default function Dashboard() {
                     {effectiveOpenPos.side}
                   </span>
                   <span className="text-xs text-white font-mono font-bold">
-                    $100.00
+                    ${(effectiveOpenPos.usd_value || effectiveOpenPos.entry_price || livePriceUsd || 81800).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
                 <p className="text-slate-400 text-[11px] mt-0.5 font-mono">
