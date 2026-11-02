@@ -137,11 +137,28 @@ const getWsUrl = () => {
 // ── Constants & Seed Trades ──────────────────────────────────────────────────
 const MAX_TICKS = 120;
 const INITIAL_CAPITAL = 100000.0; // $100,000 initial capital for 1.0 BTC trades
+const STATIC_REF_TIME = 1730000000000;
+
+const formatDisplayTime = (isoString?: string) => {
+  if (!isoString) return "—";
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return "—";
+    return d.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  } catch {
+    return "—";
+  }
+};
 
 // Multi-day realistic paper trading history for instant presentation (1.0 BTC per trade at market price)
-const generateMultiDayTradeHistory = (lastPrice: number = 81800.0): Trade[] => {
+const generateMultiDayTradeHistory = (lastPrice: number = 81800.0, referenceTimeMs?: number): Trade[] => {
   const count = 22;
-  const now = Date.now();
+  const now = referenceTimeMs ?? Date.now();
   let currentBalance = INITIAL_CAPITAL;
   const trades: Trade[] = [];
 
@@ -212,7 +229,7 @@ const generateMultiDayTradeHistory = (lastPrice: number = 81800.0): Trade[] => {
   return trades.reverse();
 };
 
-const DEFAULT_INITIAL_TRADES: Trade[] = generateMultiDayTradeHistory(81800.0);
+const DEFAULT_INITIAL_TRADES: Trade[] = generateMultiDayTradeHistory(81800.0, STATIC_REF_TIME);
 
 const DEMO_PREDICTION: Prediction = {
   symbol: "BTCUSDT",
@@ -292,6 +309,7 @@ const generateCatchUpTrades = (
 
 // ── Component ────────────────────────────────────────────────────────────────
 export default function Dashboard() {
+  const [mounted, setMounted] = useState(false);
   const [livePriceUsdt, setLivePriceUsdt] = useState<number | null>(null);
   const [livePriceUsd, setLivePriceUsd] = useState<number | null>(null);
   const [prevPriceUsd, setPrevPriceUsd] = useState<number | null>(null);
@@ -333,6 +351,10 @@ export default function Dashboard() {
   useEffect(() => {
     ticksRef.current = ticks;
   }, [ticks]);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Load saved state or populate 48h history on first visit
   useEffect(() => {
@@ -992,8 +1014,8 @@ export default function Dashboard() {
                       (${(effectiveOpenPos.usd_value || effectiveOpenPos.entry_price || livePriceUsd || 81800).toLocaleString("en-US", { minimumFractionDigits: 2 })} Invested)
                     </span>
                   </h3>
-                  <p className="text-xs text-slate-400 mt-0.5 font-mono">
-                    Opened at: {new Date(effectiveOpenPos.opened_at).toLocaleTimeString()} • Monitoring dynamic trailing stop
+                  <p className="text-xs text-slate-400 mt-0.5 font-mono" suppressHydrationWarning>
+                    Opened at: {mounted && effectiveOpenPos.opened_at ? formatDisplayTime(effectiveOpenPos.opened_at) : "—"} • Monitoring dynamic trailing stop
                   </p>
                 </div>
               </div>
@@ -1056,8 +1078,8 @@ export default function Dashboard() {
                   {botAlert.action}
                 </span>
               </h2>
-              <span className="text-xs text-slate-400 font-mono">
-                {new Date(botAlert.timestamp).toLocaleTimeString()}
+              <span className="text-xs text-slate-400 font-mono" suppressHydrationWarning>
+                {mounted && botAlert.timestamp ? formatDisplayTime(botAlert.timestamp) : "—"}
               </span>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
@@ -1202,10 +1224,10 @@ export default function Dashboard() {
             <div className="flex justify-between items-end mt-2">
               <p className="text-slate-500 text-xs">Model: {prediction?.model_version ?? "v2-xgboost"}</p>
               {prediction?.timestamp && (
-                <p className="text-slate-500 text-xs font-mono">
-                  {new Date(prediction.timestamp).toLocaleString("en-US", {
+                <p className="text-slate-500 text-xs font-mono" suppressHydrationWarning>
+                  {mounted ? new Date(prediction.timestamp).toLocaleString("en-US", {
                     month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
-                  })}
+                  }) : "—"}
                 </p>
               )}
             </div>
@@ -1422,8 +1444,8 @@ export default function Dashboard() {
                         <td className="py-2.5 px-3 font-bold text-white">
                           ${(t.balance_after || 1000).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="py-2.5 px-3 text-slate-500 text-[11px]">
-                          {t.closed_at ? new Date(t.closed_at).toLocaleTimeString() : "—"}
+                        <td className="py-2.5 px-3 text-slate-500 text-[11px]" suppressHydrationWarning>
+                          {mounted && t.closed_at ? formatDisplayTime(t.closed_at) : "—"}
                         </td>
                       </tr>
                     );
