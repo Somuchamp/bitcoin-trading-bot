@@ -82,7 +82,12 @@ class TradeResponse(BaseModel):
         from_attributes = True
 
 
-@app.get("/health")
+@app.api_route("/", methods=["GET", "HEAD"])
+def root_check():
+    return {"status": "ok", "app": "Bitcoin AI Market Prediction API"}
+
+
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health_check():
     return {"status": "ok"}
 
