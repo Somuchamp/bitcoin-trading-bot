@@ -150,7 +150,7 @@ const formatDisplayTime = (isoString?: string) => {
 };
 
 // Multi-day realistic paper trading history for instant presentation (1.0 BTC per trade at market price)
-const generateMultiDayTradeHistory = (lastPrice: number = 81800.0, referenceTimeMs?: number): Trade[] => {
+const generateMultiDayTradeHistory = (lastPrice: number = 78000.0, referenceTimeMs?: number): Trade[] => {
   const count = 22;
   const now = referenceTimeMs ?? Date.now();
   let currentBalance = INITIAL_CAPITAL;
@@ -223,13 +223,13 @@ const generateMultiDayTradeHistory = (lastPrice: number = 81800.0, referenceTime
   return trades.reverse();
 };
 
-const DEFAULT_INITIAL_TRADES: Trade[] = generateMultiDayTradeHistory(81800.0, STATIC_REF_TIME);
+const DEFAULT_INITIAL_TRADES: Trade[] = generateMultiDayTradeHistory(78000.0, STATIC_REF_TIME);
 
 const DEMO_PREDICTION: Prediction = {
   symbol: "BTCUSDT",
   timestamp: new Date().toISOString(),
   horizon: "1h",
-  price: 81820.0,
+  price: 78050.0,
   probability_down: 0.16,
   probability_neutral: 0.22,
   probability_up: 0.62,
@@ -360,15 +360,22 @@ export default function Dashboard() {
         if (savedTrades) {
           const parsed = JSON.parse(savedTrades);
           if (Array.isArray(parsed) && parsed.length > 3 && (parsed[0]?.position_usd || 0) > 1000) {
-            currentTrades = parsed;
+            // Auto-recalibrate if historical trades were generated from an older >$80k baseline
+            const firstEntry = parsed[0]?.entry_price || 0;
+            if (firstEntry > 79500) {
+              currentTrades = generateMultiDayTradeHistory(78000.0);
+              localStorage.setItem("btc_paper_trades", JSON.stringify(currentTrades));
+            } else {
+              currentTrades = parsed;
+            }
           } else {
             // First time visitor or upgrading from legacy $100 -> populate full 1.0 BTC market-price history
-            currentTrades = generateMultiDayTradeHistory(81800.0);
+            currentTrades = generateMultiDayTradeHistory(78000.0);
             localStorage.setItem("btc_paper_trades", JSON.stringify(currentTrades));
           }
         } else {
           // New visitor (e.g. client) -> immediately provide rich execution record
-          currentTrades = generateMultiDayTradeHistory(81800.0);
+          currentTrades = generateMultiDayTradeHistory(78000.0);
           localStorage.setItem("btc_paper_trades", JSON.stringify(currentTrades));
         }
 
@@ -379,7 +386,8 @@ export default function Dashboard() {
           const lastActive = parseInt(lastActiveStr, 10);
           const gapHours = (now - lastActive) / (1000 * 3600);
           if (gapHours >= 0.5) {
-            currentTrades = generateCatchUpTrades(currentTrades, gapHours, 80500.0);
+            const anchorPrice = currentTrades[0]?.entry_price || 78000.0;
+            currentTrades = generateCatchUpTrades(currentTrades, gapHours, anchorPrice);
             localStorage.setItem("btc_paper_trades", JSON.stringify(currentTrades));
           }
         }
@@ -395,7 +403,7 @@ export default function Dashboard() {
         }
       } catch (e) {
         console.error("Failed to load local trading state:", e);
-        const fallback = generateMultiDayTradeHistory(80500.0);
+        const fallback = generateMultiDayTradeHistory(78000.0);
         setLocalTrades(fallback);
       }
     }
@@ -524,7 +532,7 @@ export default function Dashboard() {
       return;
     }
 
-    const entryPrice = customPrice || livePriceUsd || 81800.0;
+    const entryPrice = customPrice || livePriceUsd || 78000.0;
     const quantityBtc = 1.0; // 1.0 full Bitcoin
     const investedUsd = entryPrice; // Invested = current Bitcoin market price
 
@@ -572,7 +580,7 @@ export default function Dashboard() {
   const resetTradingHistory = useCallback(() => {
     if (confirm("Reset paper trading balance to $100,000.00 and restore baseline performance records?")) {
       saveActivePosState(null);
-      const freshHistory = generateMultiDayTradeHistory(livePriceUsd || 81800.0);
+      const freshHistory = generateMultiDayTradeHistory(livePriceUsd || 78000.0);
       saveTradesState(freshHistory);
       try {
         fetch(`${getApiBase()}/api/v1/trading/reset`, { method: "POST" })
@@ -800,7 +808,7 @@ export default function Dashboard() {
         // Fallback to dynamic autonomous model output
       }
 
-      const curPrice = livePriceUsd || 80520.0;
+      const curPrice = livePriceUsd || 78020.0;
       const trendUp = prevPriceUsd ? curPrice >= prevPriceUsd : true;
       const probUp = trendUp ? 0.62 + (Math.random() * 0.12) : 0.18 + (Math.random() * 0.08);
       const probDown = trendUp ? 0.16 + (Math.random() * 0.08) : 0.60 + (Math.random() * 0.14);
@@ -1005,7 +1013,7 @@ export default function Dashboard() {
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     {effectiveOpenPos.quantity_btc || 1.0} BTC @ ${effectiveOpenPos.entry_price.toLocaleString("en-US", { minimumFractionDigits: 2 })}
                     <span className="text-slate-400 font-normal text-xs">
-                      (${(effectiveOpenPos.usd_value || effectiveOpenPos.entry_price || livePriceUsd || 81800).toLocaleString("en-US", { minimumFractionDigits: 2 })} Invested)
+                      (${(effectiveOpenPos.usd_value || effectiveOpenPos.entry_price || livePriceUsd || 78000).toLocaleString("en-US", { minimumFractionDigits: 2 })} Invested)
                     </span>
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5 font-mono" suppressHydrationWarning>
@@ -1158,7 +1166,7 @@ export default function Dashboard() {
                     {effectiveOpenPos.side}
                   </span>
                   <span className="text-xs text-white font-mono font-bold">
-                    ${(effectiveOpenPos.usd_value || effectiveOpenPos.entry_price || livePriceUsd || 81800).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    ${(effectiveOpenPos.usd_value || effectiveOpenPos.entry_price || livePriceUsd || 78000).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
                 <p className="text-slate-400 text-[11px] mt-0.5 font-mono">
