@@ -1024,7 +1024,9 @@ export default function Dashboard() {
                 <div>
                   <p className="text-[11px] text-slate-400 uppercase">Live Unrealized P&amp;L</p>
                   <p className={`text-lg font-mono font-bold ${(effectiveOpenPos.unrealized_pnl_usd ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                    {(effectiveOpenPos.unrealized_pnl_usd ?? 0) >= 0 ? "+" : ""}${effectiveOpenPos.unrealized_pnl_usd?.toFixed(2) ?? "0.00"}
+                    {(effectiveOpenPos.unrealized_pnl_usd ?? 0) >= 0
+                      ? `+$${(effectiveOpenPos.unrealized_pnl_usd ?? 0).toFixed(2)}`
+                      : `-$${Math.abs(effectiveOpenPos.unrealized_pnl_usd ?? 0).toFixed(2)}`}
                     <span className="text-xs ml-1 font-semibold">
                       ({(effectiveOpenPos.unrealized_pnl_pct ?? 0) >= 0 ? "+" : ""}{effectiveOpenPos.unrealized_pnl_pct?.toFixed(2) ?? "0.00"}%)
                     </span>
@@ -1118,7 +1120,7 @@ export default function Dashboard() {
           <div className="bg-[#131722] rounded-xl p-4 border border-slate-800">
             <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Total Net P&amp;L</p>
             <div className={`text-xl font-mono font-bold ${pnlIsPositive ? "text-emerald-400" : "text-rose-400"}`}>
-              {pnlIsPositive ? "+" : ""}${totalNetPnlUsd.toFixed(2)}
+              {pnlIsPositive ? `+$${totalNetPnlUsd.toFixed(2)}` : `-$${Math.abs(totalNetPnlUsd).toFixed(2)}`}
             </div>
             <p className={`text-[11px] mt-0.5 ${pnlIsPositive ? "text-emerald-500" : "text-rose-500"}`}>
               {pnlIsPositive ? "+" : ""}{totalReturnPct.toFixed(2)}%
@@ -1421,7 +1423,7 @@ export default function Dashboard() {
                         <td className="py-2.5 px-3 text-slate-300">${t.exit_price?.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
                         <td className="py-2.5 px-3 text-slate-400">{t.quantity_btc?.toFixed(6)}</td>
                         <td className={`py-2.5 px-3 font-bold ${isWin ? "text-emerald-400" : "text-rose-400"}`}>
-                          {isWin ? "+" : ""}${t.pnl_usd?.toFixed(2)}
+                          {isWin ? `+$${t.pnl_usd?.toFixed(2)}` : `-$${Math.abs(t.pnl_usd ?? 0).toFixed(2)}`}
                         </td>
                         <td className={`py-2.5 px-3 font-bold ${isWin ? "text-emerald-400" : "text-rose-400"}`}>
                           {isWin ? "+" : ""}{t.pnl_pct?.toFixed(2)}%
