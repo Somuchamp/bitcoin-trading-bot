@@ -110,10 +110,9 @@ const getApiBase = () => {
     if (window.location.port === "3000") {
       return `http://${window.location.hostname}:8000`;
     }
-    // Universal Cloudflare edge API (same-origin sync across all devices)
-    return window.location.origin;
+    return "https://bitcoin-trading-bot-x7gq.onrender.com";
   }
-  return "";
+  return "https://bitcoin-trading-bot-x7gq.onrender.com";
 };
 
 const getWsUrl = () => {
@@ -124,14 +123,9 @@ const getWsUrl = () => {
     if (window.location.port === "3000") {
       return `ws://${window.location.hostname}:8000/ws/price`;
     }
-    if (isExternalHost(window.location.hostname)) {
-      return "wss://soumyadeep-04-btc-trader.hf.space/ws/price";
-    }
-    const isHttps = window.location.protocol === "https:";
-    const protocol = isHttps ? "wss:" : "ws:";
-    return `${protocol}//${window.location.host}/ws/price`;
+    return "wss://bitcoin-trading-bot-x7gq.onrender.com/ws/price";
   }
-  return "wss://soumyadeep-04-btc-trader.hf.space/ws/price";
+  return "wss://bitcoin-trading-bot-x7gq.onrender.com/ws/price";
 };
 
 // ── Constants & Seed Trades ──────────────────────────────────────────────────
