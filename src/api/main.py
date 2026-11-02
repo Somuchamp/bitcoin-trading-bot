@@ -17,7 +17,6 @@ from src.api.price_stream import binance_price_generator, refresh_usdt_rate
 
 logger = logging.getLogger(__name__)
 
-# Create tables
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Bitcoin AI Market Prediction API")
@@ -353,6 +352,24 @@ async def startup_event():
     # Start Binance price stream
     _price_stream_task = asyncio.create_task(_run_price_stream())
     logger.info("Binance live price stream and USDT rate refresh started.")
+
+    # Start Binance Live Prediction & Paper Trading Worker
+    def _run_worker():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            from src.prediction.worker import LiveWorker
+            import src.prediction.worker as _worker_mod
+            worker = LiveWorker()
+            _worker_mod._worker_instance = worker
+            logger.info("LiveWorker initialized and running Binance analysis.")
+            loop.run_until_complete(worker.run())
+        except Exception as e:
+            logger.error(f"LiveWorker startup error: {e}")
+
+    import threading
+    worker_thread = threading.Thread(target=_run_worker, daemon=True)
+    worker_thread.start()
 
 
 @app.websocket("/ws/price")
