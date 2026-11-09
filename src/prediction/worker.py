@@ -307,6 +307,15 @@ class LiveWorker:
             self.sync_open_position_to_db()
 
     async def run(self):
+        # Process latest completed candle immediately on startup so DB is primed
+        if self.recent_data is not None and not self.recent_data.empty:
+            try:
+                latest = self.recent_data.iloc[-1].to_dict()
+                logger.info(f"Priming engine with latest completed candle: Close=${latest.get('close')}")
+                await self.on_candle_closed(latest)
+            except Exception as e:
+                logger.warning(f"Initial candle priming notice: {e}")
+
         await self.collector.start(self.on_candle_closed)
 
 
