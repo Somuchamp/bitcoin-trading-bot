@@ -67,3 +67,22 @@ def test_trailing_stop_loss_exit():
     assert trader.total_trades == 1
     assert trader.trade_history[0]["reason"] == "trailing_stop"
     assert trader.trade_history[0]["pnl_usd"] > 0  # Still in profit because trailing stop locked in gains!
+
+
+def test_on_price_tick_take_profit():
+    risk_mgr = RiskManager(
+        max_position_usd=100000.0,
+        stop_loss_pct=0.01,
+        trailing_stop_pct=0.005,
+        min_confidence=0.40,
+    )
+    trader = PaperTrader(initial_capital_usd=100000.0, risk_manager=risk_mgr)
+    trader.execute_signal("UP", confidence=0.55, current_price=80000.0)
+    assert trader.risk_manager.open_position is not None
+
+    # Tick arrives with +1.5% profit ($81,200 > $80,000 * 1.012)
+    res = trader.on_price_tick(81200.0)
+    assert res is not None
+    assert res["action"] == "CLOSE_TAKE_PROFIT"
+    assert trader.risk_manager.open_position is None
+    assert trader.trade_history[0]["pnl_usd"] > 0

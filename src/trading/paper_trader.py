@@ -144,6 +144,29 @@ class PaperTrader:
         )
         return result
 
+    def on_price_tick(self, current_price: float) -> Optional[dict]:
+        """Evaluates protective exits (take profit / trailing stop) in real time on every price tick."""
+        if not self.risk_manager.open_position:
+            return None
+
+        pos = self.risk_manager.open_position
+        is_buy = pos.side == "BUY"
+        # 1.2% take-profit target
+        take_profit_hit = (current_price >= pos.entry_price * 1.012) if is_buy else (current_price <= pos.entry_price * 0.988)
+        if take_profit_hit:
+            closed = self._record_closed_trade("take_profit", current_price)
+            logger.info(f"TAKE PROFIT harvested at ${current_price:,.2f} | PnL: ${closed.get('pnl_usd', 0):+.2f}")
+            return {"action": "CLOSE_TAKE_PROFIT", "trade": closed}
+
+        # Check dynamic stop-loss / trailing stop
+        sl_triggered, sl_reason = self.risk_manager.check_stop_loss(current_price)
+        if sl_triggered:
+            closed = self._record_closed_trade(sl_reason, current_price)
+            logger.info(f"{sl_reason.upper()} hit at ${current_price:,.2f} | PnL: ${closed.get('pnl_usd', 0):+.2f}")
+            return {"action": f"CLOSE_{sl_reason.upper()}", "trade": closed}
+
+        return None
+
     def emergency_close(self, current_price: float) -> dict:
         """Forces closure of any active position immediately."""
         if self.risk_manager.open_position:

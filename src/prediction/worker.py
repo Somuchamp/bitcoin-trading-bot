@@ -153,6 +153,13 @@ class LiveWorker:
             db.add(record)
             db.commit()
             logger.info(f"Trade successfully saved to DB: #{record.id} {record.side} PnL=${record.pnl_usd:+.2f} ({record.exit_reason})")
+
+            # Async push notification (Telegram / Discord)
+            try:
+                from src.notification.notifier import notify_trade_event
+                asyncio.create_task(notify_trade_event("CLOSE", closed_trade))
+            except Exception:
+                pass
         except Exception as e:
             logger.error(f"Failed to save trade to DB: {e}")
         finally:
@@ -175,12 +182,31 @@ class LiveWorker:
             # 3. Generate Features
             features_df = self.predictor.generate_features(self.recent_data)
 
-            # 4. Predict
+            # 4. Predict with AI model
             prediction = self.predictor.predict(features_df)
-            signal = prediction["predicted_class"]    # "UP", "DOWN", or "NEUTRAL"
+            raw_signal = prediction["predicted_class"]    # "UP", "DOWN", or "NEUTRAL"
             confidence = prediction["confidence"]
 
-            logger.info(f"Prediction: {signal} (Conf: {confidence:.2f})")
+            # Multi-Indicator Convergence Filter (EMA Trend + RSI + MACD)
+            rsi = float(features_df["rsi"].iloc[0]) if "rsi" in features_df else 50.0
+            macd_hist = float(features_df["macd_histogram_pct"].iloc[0]) if "macd_histogram_pct" in features_df else 0.0
+            price_vs_sma50 = float(features_df["price_vs_sma_50"].iloc[0]) if "price_vs_sma_50" in features_df else 0.0
+
+            # Technical confirmation rules:
+            # Bullish Convergence: Price near/above SMA50, RSI not overbought (<68), and MACD histogram positive
+            ta_bullish = (price_vs_sma50 > -0.01) and (rsi < 68.0) and (macd_hist > -0.001)
+            # Bearish Convergence: Price near/below SMA50, RSI not oversold (>32), and MACD histogram negative
+            ta_bearish = (price_vs_sma50 < 0.01) and (rsi > 32.0) and (macd_hist < 0.001)
+
+            signal = raw_signal
+            if raw_signal == "UP" and not ta_bullish:
+                signal = "NEUTRAL"
+                logger.info(f"UP signal filtered out by TA: RSI={rsi:.1f}, MACD_hist={macd_hist:.4f}, SMA50_bias={price_vs_sma50:.2%}")
+            elif raw_signal == "DOWN" and not ta_bearish:
+                signal = "NEUTRAL"
+                logger.info(f"DOWN signal filtered out by TA: RSI={rsi:.1f}, MACD_hist={macd_hist:.4f}, SMA50_bias={price_vs_sma50:.2%}")
+
+            logger.info(f"Convergence Decision: {signal} (Raw: {raw_signal}, Conf: {confidence:.2f}, RSI: {rsi:.1f}, MACD: {macd_hist:.4f})")
 
             # 5. Execute paper trade based on signal (handles dynamic entry, predictive withdrawal, trailing stop)
             trade_result = self.trader.execute_signal(
@@ -205,6 +231,20 @@ class LiveWorker:
             # 7. Save alert if a new trade is opened or closed
             if action.startswith("OPEN_"):
                 self.save_alert(candle_data, action, candle_data["close"], confidence)
+                try:
+                    from src.notification.notifier import notify_trade_event
+                    pos = self.trader.risk_manager.open_position
+                    if pos:
+                        asyncio.create_task(notify_trade_event("OPEN", {
+                            "side": pos.side,
+                            "entry_price": pos.entry_price,
+                            "quantity_btc": pos.quantity_btc,
+                            "reason": trade_result.get("reason", "AI+TA Convergence"),
+                            "stop_loss": pos.stop_loss_price,
+                            "take_profit": pos.entry_price * (1.012 if pos.side == "BUY" else 0.988),
+                        }))
+                except Exception:
+                    pass
             elif action.startswith("CLOSE_"):
                 self.save_alert(candle_data, action, candle_data["close"], confidence, status="CLOSED")
 
@@ -257,6 +297,14 @@ class LiveWorker:
             logger.info(f"Alert saved to database: {record.action} @ {record.entry_price}")
         finally:
             db.close()
+
+    def on_price_tick(self, current_price: float):
+        """Processes live price ticks in real time to trigger dynamic trailing stops and profit targets."""
+        if not self.trader.risk_manager.open_position:
+            return
+        result = self.trader.on_price_tick(current_price)
+        if result:
+            self.sync_open_position_to_db()
 
     async def run(self):
         await self.collector.start(self.on_candle_closed)

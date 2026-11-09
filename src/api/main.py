@@ -338,6 +338,13 @@ async def _run_price_stream():
     global _last_tick
     async for tick in binance_price_generator():
         _last_tick = tick
+        try:
+            from src.prediction.worker import _worker_instance
+            if _worker_instance is not None:
+                _worker_instance.on_price_tick(tick["price_usd"])
+        except Exception as e:
+            logger.error(f"Error evaluating live tick: {e}")
+
         payload = json.dumps({
             "price_usdt": tick["price_usdt"],
             "price_usd": tick["price_usd"],
