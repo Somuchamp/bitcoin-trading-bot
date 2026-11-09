@@ -186,6 +186,122 @@ function jsonResponse(data, status = 200) {
   });
 }
 
+async function evaluateTradingEngine(state, env, currentPrice) {
+  if (!currentPrice || isNaN(currentPrice) || currentPrice <= 0) return;
+  state.last_price = currentPrice;
+  const now = Date.now();
+
+  // 1. If position is open, check protective exits / profit take
+  if (state.open_position) {
+    const pos = state.open_position;
+    const isBuy = pos.side === "BUY";
+
+    if (isBuy) {
+      if (currentPrice > pos.highest_price) {
+        pos.highest_price = currentPrice;
+        // Trail stop loss 0.4% behind peak price to lock in accrued profit
+        const newTrailingStop = parseFloat((currentPrice * 0.996).toFixed(2));
+        if (newTrailingStop > pos.stop_loss_price) {
+          pos.stop_loss_price = newTrailingStop;
+        }
+      }
+      if (currentPrice <= pos.stop_loss_price || currentPrice >= pos.take_profit_price) {
+        const reason = currentPrice >= pos.take_profit_price ? "take_profit" : "trailing_stop";
+        const pnlUsd = (currentPrice - pos.entry_price) * pos.quantity_btc;
+        const pnlPct = (pnlUsd / pos.usd_value) * 100;
+        const lastBal = state.recent_trades[0]?.balance_after || INITIAL_CAPITAL;
+        const balAfter = parseFloat((lastBal + pnlUsd).toFixed(2));
+
+        state.recent_trades = [{
+          id: now,
+          side: pos.side,
+          entry_price: pos.entry_price,
+          exit_price: currentPrice,
+          quantity_btc: pos.quantity_btc,
+          position_usd: pos.usd_value,
+          pnl_usd: parseFloat(pnlUsd.toFixed(2)),
+          pnl_pct: parseFloat(pnlPct.toFixed(2)),
+          exit_reason: reason,
+          opened_at: pos.opened_at,
+          closed_at: new Date(now).toISOString(),
+          balance_after: balAfter,
+        }, ...state.recent_trades].slice(0, 50);
+
+        state.balance_usd = balAfter;
+        state.peak_balance_usd = Math.max(state.peak_balance_usd, balAfter);
+        state.open_position = null;
+      }
+    } else {
+      // SELL / Short
+      if (currentPrice < pos.lowest_price) {
+        pos.lowest_price = currentPrice;
+        const newTrailingStop = parseFloat((currentPrice * 1.004).toFixed(2));
+        if (newTrailingStop < pos.stop_loss_price) {
+          pos.stop_loss_price = newTrailingStop;
+        }
+      }
+      if (currentPrice >= pos.stop_loss_price || currentPrice <= pos.take_profit_price) {
+        const reason = currentPrice <= pos.take_profit_price ? "take_profit" : "trailing_stop";
+        const pnlUsd = (pos.entry_price - currentPrice) * pos.quantity_btc;
+        const pnlPct = (pnlUsd / pos.usd_value) * 100;
+        const lastBal = state.recent_trades[0]?.balance_after || INITIAL_CAPITAL;
+        const balAfter = parseFloat((lastBal + pnlUsd).toFixed(2));
+
+        state.recent_trades = [{
+          id: now,
+          side: pos.side,
+          entry_price: pos.entry_price,
+          exit_price: currentPrice,
+          quantity_btc: pos.quantity_btc,
+          position_usd: pos.usd_value,
+          pnl_usd: parseFloat(pnlUsd.toFixed(2)),
+          pnl_pct: parseFloat(pnlPct.toFixed(2)),
+          exit_reason: reason,
+          opened_at: pos.opened_at,
+          closed_at: new Date(now).toISOString(),
+          balance_after: balAfter,
+        }, ...state.recent_trades].slice(0, 50);
+
+        state.balance_usd = balAfter;
+        state.peak_balance_usd = Math.max(state.peak_balance_usd, balAfter);
+        state.open_position = null;
+      }
+    }
+  } else {
+    // 2. No open position: Check if we should open a new 1.0 BTC position
+    const lastTrade = state.recent_trades && state.recent_trades[0];
+    const lastTradeTime = lastTrade ? new Date(lastTrade.closed_at).getTime() : 0;
+    const timeSinceLastMs = now - lastTradeTime;
+
+    // Open a new position if more than 8 minutes passed or fresh state
+    if (!lastTrade || timeSinceLastMs > 8 * 60 * 1000) {
+      const side = (lastTrade && lastTrade.side === "BUY") ? "SELL" : "BUY";
+      const quantityBtc = 1.0;
+      const entryPrice = currentPrice;
+      const investedUsd = entryPrice;
+      const stopLoss = side === "BUY" ? entryPrice * 0.992 : entryPrice * 1.008;
+      const takeProfit = side === "BUY" ? entryPrice * 1.012 : entryPrice * 0.988;
+
+      state.open_position = {
+        side,
+        entry_price: entryPrice,
+        quantity_btc: quantityBtc,
+        usd_value: investedUsd,
+        stop_loss_price: parseFloat(stopLoss.toFixed(2)),
+        take_profit_price: parseFloat(takeProfit.toFixed(2)),
+        highest_price: entryPrice,
+        lowest_price: entryPrice,
+        opened_at: new Date(now).toISOString(),
+        unrealized_pnl_usd: 0.0,
+        unrealized_pnl_pct: 0.0,
+        reason: "autonomous_momentum",
+      };
+    }
+  }
+
+  await saveState(env, state);
+}
+
 export default {
   async fetch(request, env, ctx) {
     env_has_kv = Boolean(env && env.TRADING_KV);
@@ -209,6 +325,18 @@ export default {
     // 1. Portfolio summary (Universal across all devices)
     if (path === "/api/v1/portfolio" || path === "/api/portfolio") {
       const state = await getState(env);
+      try {
+        const pRes = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
+        if (pRes.ok) {
+          const pData = await pRes.json();
+          const p = parseFloat(pData.price);
+          if (p > 0) {
+            await evaluateTradingEngine(state, env, p);
+          }
+        }
+      } catch (e) {
+        // Fallback silently if Binance ticker is temporarily unavailable
+      }
       return jsonResponse(computeMetrics(state));
     }
 
@@ -398,83 +526,7 @@ export default {
       if (isNaN(price) || price <= 0) return;
 
       const state = await getState(env);
-      state.last_price = price;
-
-      // 1. If position is open, check protective exits / profit take
-      if (state.open_position) {
-        const pos = state.open_position;
-        const isBuy = pos.side === "BUY";
-
-        if (isBuy) {
-          if (price > pos.highest_price) {
-            pos.highest_price = price;
-            // Trail stop loss 0.4% behind peak price to lock in accrued profit
-            const newTrailingStop = parseFloat((price * 0.996).toFixed(2));
-            if (newTrailingStop > pos.stop_loss_price) {
-              pos.stop_loss_price = newTrailingStop;
-            }
-          }
-          if (price <= pos.stop_loss_price || price >= pos.take_profit_price) {
-            const reason = price >= pos.take_profit_price ? "take_profit" : "trailing_stop";
-            const pnlUsd = (price - pos.entry_price) * pos.quantity_btc;
-            const pnlPct = (pnlUsd / pos.usd_value) * 100;
-            const lastBal = state.recent_trades[0]?.balance_after || INITIAL_CAPITAL;
-            const balAfter = parseFloat((lastBal + pnlUsd).toFixed(2));
-
-            state.recent_trades = [{
-              id: Date.now(),
-              side: pos.side,
-              entry_price: pos.entry_price,
-              exit_price: price,
-              quantity_btc: pos.quantity_btc,
-              position_usd: pos.usd_value,
-              pnl_usd: parseFloat(pnlUsd.toFixed(2)),
-              pnl_pct: parseFloat(pnlPct.toFixed(2)),
-              exit_reason: reason,
-              opened_at: pos.opened_at,
-              closed_at: new Date().toISOString(),
-              balance_after: balAfter,
-            }, ...state.recent_trades].slice(0, 50);
-
-            state.open_position = null;
-          }
-        } else {
-          // SELL / Short
-          if (price < pos.lowest_price) {
-            pos.lowest_price = price;
-            const newTrailingStop = parseFloat((price * 1.004).toFixed(2));
-            if (newTrailingStop < pos.stop_loss_price) {
-              pos.stop_loss_price = newTrailingStop;
-            }
-          }
-          if (price >= pos.stop_loss_price || price <= pos.take_profit_price) {
-            const reason = price <= pos.take_profit_price ? "take_profit" : "trailing_stop";
-            const pnlUsd = (pos.entry_price - price) * pos.quantity_btc;
-            const pnlPct = (pnlUsd / pos.usd_value) * 100;
-            const lastBal = state.recent_trades[0]?.balance_after || INITIAL_CAPITAL;
-            const balAfter = parseFloat((lastBal + pnlUsd).toFixed(2));
-
-            state.recent_trades = [{
-              id: Date.now(),
-              side: pos.side,
-              entry_price: pos.entry_price,
-              exit_price: price,
-              quantity_btc: pos.quantity_btc,
-              position_usd: pos.usd_value,
-              pnl_usd: parseFloat(pnlUsd.toFixed(2)),
-              pnl_pct: parseFloat(pnlPct.toFixed(2)),
-              exit_reason: reason,
-              opened_at: pos.opened_at,
-              closed_at: new Date().toISOString(),
-              balance_after: balAfter,
-            }, ...state.recent_trades].slice(0, 50);
-
-            state.open_position = null;
-          }
-        }
-      }
-
-      await saveState(env, state);
+      await evaluateTradingEngine(state, env, price);
     } catch (e) {
       console.error("Scheduled cron error:", e);
     }

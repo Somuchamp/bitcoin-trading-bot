@@ -110,6 +110,10 @@ const getApiBase = () => {
     if (window.location.port === "3000") {
       return `http://${window.location.hostname}:8000`;
     }
+    // When hosted on Cloudflare (workers.dev / pages.dev), use the origin edge router
+    if (window.location.hostname.includes("workers.dev") || window.location.hostname.includes("pages.dev")) {
+      return window.location.origin;
+    }
     return "https://bitcoin-trading-bot-x7gq.onrender.com";
   }
   return "https://bitcoin-trading-bot-x7gq.onrender.com";
@@ -398,7 +402,15 @@ export default function Dashboard() {
         if (savedPos) {
           const parsedPos = JSON.parse(savedPos);
           if (parsedPos && parsedPos.side) {
-            setActivePosition(parsedPos);
+            // Discard outdated stale position from earlier sessions
+            if (parsedPos.entry_price < 76000 || parsedPos.entry_price > 120000) {
+              localStorage.removeItem("btc_paper_active_position");
+              activePosRef.current = null;
+              setActivePosition(null);
+            } else {
+              activePosRef.current = parsedPos;
+              setActivePosition(parsedPos);
+            }
           }
         }
       } catch (e) {
@@ -432,6 +444,7 @@ export default function Dashboard() {
   }, []);
 
   const saveActivePosState = useCallback((pos: LocalPosition | null) => {
+    activePosRef.current = pos;
     setActivePosition(pos);
     if (typeof window !== "undefined") {
       try {
@@ -455,9 +468,14 @@ export default function Dashboard() {
         if (data && Array.isArray(data.recent_trades) && data.recent_trades.length > 0) {
           setBackendPortfolio(data);
           if (data.open_position) {
+            activePosRef.current = data.open_position;
             setActivePosition(data.open_position);
           } else if (data.open_position === null) {
+            activePosRef.current = null;
             setActivePosition(null);
+            if (typeof window !== "undefined") {
+              localStorage.removeItem("btc_paper_active_position");
+            }
           }
         }
       }

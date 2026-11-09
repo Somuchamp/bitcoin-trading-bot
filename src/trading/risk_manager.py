@@ -49,11 +49,11 @@ class Position:
 class RiskManager:
     def __init__(
         self,
-        max_position_usd: float = 100.0,
+        max_position_usd: float = 100000.0, # Max position sized for 1.0 BTC market trading
         stop_loss_pct: float = 0.01,       # 1% initial stop-loss
         trailing_stop_pct: float = 0.005,  # 0.5% trailing stop
-        max_daily_loss_usd: float = 50.0,  # Stop trading if we lose $50 in a day
-        min_confidence: float = 0.60,      # Only trade when model is ≥60% confident
+        max_daily_loss_usd: float = 5000.0,# Max daily loss threshold for 1.0 BTC
+        min_confidence: float = 0.40,      # Trade when 3-class model confidence ≥40% (baseline is 33%)
     ):
         self.max_position_usd = max_position_usd
         self.stop_loss_pct = stop_loss_pct

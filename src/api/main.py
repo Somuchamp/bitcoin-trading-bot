@@ -185,7 +185,7 @@ def emergency_stop(db: Session = Depends(get_db)):
     pnl_pct = (pnl_usd / open_pos.usd_value * 100) if open_pos.usd_value > 0 else 0.0
 
     latest_trade = db.query(TradeRecord).order_by(desc(TradeRecord.closed_at)).first()
-    prev_balance = latest_trade.balance_after if latest_trade and latest_trade.balance_after else 1000.0
+    prev_balance = latest_trade.balance_after if latest_trade and latest_trade.balance_after else 100000.0
     balance_after = round(prev_balance + pnl_usd, 2)
 
     closed_record = TradeRecord(
@@ -228,7 +228,7 @@ def get_portfolio(db: Session = Depends(get_db)):
 
     # Fallback / process-isolated read from DB
     trades = db.query(TradeRecord).order_by(desc(TradeRecord.closed_at)).limit(20).all()
-    initial_cap = 1000.0
+    initial_cap = 100000.0
     latest_trade = trades[0] if trades else None
     current_balance = latest_trade.balance_after if latest_trade and latest_trade.balance_after else initial_cap
     total_trades = db.query(TradeRecord).count()

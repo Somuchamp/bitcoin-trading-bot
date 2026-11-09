@@ -25,18 +25,18 @@ class LiveWorker:
         self.historical = BinanceHistoricalCollector()
         self.predictor = LivePredictor()
 
-        # Paper trading engine (PAPER_TRADE mode — no real money)
+        # Paper trading engine (PAPER_TRADE mode — 1.0 BTC market position sizing)
         risk_mgr = RiskManager(
-            max_position_usd=100.0,   # Max $100 per trade
-            stop_loss_pct=0.01,       # 1% stop-loss
-            trailing_stop_pct=0.005,  # 0.5% dynamic trailing stop
-            max_daily_loss_usd=50.0,  # Stop trading if $50 lost in a day
-            min_confidence=0.60,      # Only trade when model ≥60% confident
+            max_position_usd=100000.0,  # Max position sized for 1.0 BTC market price
+            stop_loss_pct=0.01,        # 1% stop-loss
+            trailing_stop_pct=0.005,   # 0.5% dynamic trailing stop
+            max_daily_loss_usd=5000.0, # Sized for 1.0 BTC daily limit
+            min_confidence=0.40,       # 3-class model confidence threshold (random baseline = 33%)
         )
         self.trader = PaperTrader(
-            initial_capital_usd=1000.0,
+            initial_capital_usd=100000.0,
             risk_manager=risk_mgr,
-            reversal_confidence_threshold=0.50, # Withdraw immediately on loss anticipation (reversal)
+            reversal_confidence_threshold=0.45, # Exit on anticipated reversal
             on_trade_closed=self.save_trade,
         )
 
