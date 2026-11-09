@@ -17,3 +17,4 @@ PyYAML
 plotly
 pytest
 psycopg2-binary
+psycopg[binary]
