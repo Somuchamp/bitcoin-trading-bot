@@ -99,3 +99,4 @@ async def notify_trade_event(event_type: str, details: dict):
     logger.info(f"[NOTIFIER] {title}")
     await send_telegram_alert(msg)
     await send_discord_alert(title, msg, color=color)
+

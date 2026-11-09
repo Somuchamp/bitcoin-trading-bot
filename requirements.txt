@@ -16,3 +16,4 @@ python-dotenv
 PyYAML
 plotly
 pytest
+psycopg2-binary
