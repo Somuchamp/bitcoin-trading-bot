@@ -153,6 +153,28 @@ const formatDisplayTime = (isoString?: string) => {
   }
 };
 
+const formatDisplayDateTime = (isoString?: string) => {
+  if (!isoString) return { date: "—", time: "—" };
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return { date: "—", time: "—" };
+    const date = d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    const time = d.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    return { date, time };
+  } catch {
+    return { date: "—", time: "—" };
+  }
+};
+
 // Multi-day realistic paper trading history for past 7 days (1.0 BTC per trade at market price)
 const generateMultiDayTradeHistory = (lastPrice: number = 81800.0, referenceTimeMs?: number): Trade[] => {
   const count = 32;
@@ -1563,7 +1585,7 @@ export default function Dashboard() {
                   <th className="py-2.5 px-3">Return (%)</th>
                   <th className="py-2.5 px-3">Withdrawal Reason</th>
                   <th className="py-2.5 px-3">Balance After</th>
-                  <th className="py-2.5 px-3">Closed Time</th>
+                  <th className="py-2.5 px-3">Closed Date &amp; Time (UTC)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -1617,8 +1639,19 @@ export default function Dashboard() {
                         <td className="py-2.5 px-3 font-bold text-white">
                           ${(t.balance_after || 1000).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="py-2.5 px-3 text-slate-500 text-[11px]" suppressHydrationWarning>
-                          {mounted && t.closed_at ? formatDisplayTime(t.closed_at) : "—"}
+                        <td className="py-2.5 px-3 whitespace-nowrap text-[11px]" suppressHydrationWarning>
+                          {mounted && t.closed_at ? (
+                            <div>
+                              <span className="text-white font-semibold block">
+                                {formatDisplayDateTime(t.closed_at).date}
+                              </span>
+                              <span className="text-slate-500 text-[10px] font-mono">
+                                {formatDisplayDateTime(t.closed_at).time} UTC
+                              </span>
+                            </div>
+                          ) : (
+                            "—"
+                          )}
                         </td>
                       </tr>
                     );
