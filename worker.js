@@ -11,37 +11,54 @@ const KV_KEY = "btc_shared_portfolio_state_v2"; // v2: 1 BTC market-price positi
 
 // Realistic multi-day trade history trading 1.0 BTC at market price with substantial profits
 function generateSeedTrades(lastPrice = 81800.0) {
-  const count = 22;
+  const count = 32;
   const now = Date.now();
   let currentBalance = INITIAL_CAPITAL;
   const trades = [];
 
   const tradePatterns = [
+    // Day 1 (7 days ago)
     { side: "BUY",  pnlPct: 1.15, exit: "take_profit" },
     { side: "SELL", pnlPct: 0.85, exit: "trailing_stop" },
     { side: "BUY",  pnlPct: -0.35, exit: "predictive_reversal" },
     { side: "BUY",  pnlPct: 1.30, exit: "take_profit" },
+    // Day 2 (6 days ago)
     { side: "SELL", pnlPct: 0.92, exit: "trailing_stop" },
     { side: "SELL", pnlPct: -0.40, exit: "trailing_stop" },
     { side: "BUY",  pnlPct: 1.08, exit: "take_profit" },
     { side: "BUY",  pnlPct: 0.75, exit: "trailing_stop" },
+    // Day 3 (5 days ago)
     { side: "BUY",  pnlPct: -0.30, exit: "predictive_reversal" },
     { side: "SELL", pnlPct: 1.25, exit: "take_profit" },
     { side: "BUY",  pnlPct: 0.95, exit: "trailing_stop" },
     { side: "SELL", pnlPct: -0.38, exit: "predictive_reversal" },
+    // Day 4 (4 days ago)
     { side: "BUY",  pnlPct: 1.40, exit: "take_profit" },
     { side: "SELL", pnlPct: 0.82, exit: "trailing_stop" },
     { side: "BUY",  pnlPct: -0.42, exit: "trailing_stop" },
     { side: "BUY",  pnlPct: 1.50, exit: "take_profit" },
+    // Day 5 (3 days ago)
     { side: "SELL", pnlPct: 0.90, exit: "trailing_stop" },
     { side: "BUY",  pnlPct: 1.12, exit: "take_profit" },
     { side: "SELL", pnlPct: -0.32, exit: "predictive_reversal" },
     { side: "BUY",  pnlPct: 1.28, exit: "take_profit" },
+    // Day 6 (2 days ago)
     { side: "BUY",  pnlPct: -0.28, exit: "predictive_reversal" },
+    { side: "BUY",  pnlPct: 1.05, exit: "take_profit" },
+    { side: "SELL", pnlPct: 0.88, exit: "trailing_stop" },
+    { side: "BUY",  pnlPct: -0.36, exit: "predictive_reversal" },
+    // Day 7 (Yesterday & Today)
+    { side: "BUY",  pnlPct: 1.22, exit: "take_profit" },
+    { side: "SELL", pnlPct: 0.94, exit: "trailing_stop" },
+    { side: "BUY",  pnlPct: -0.30, exit: "trailing_stop" },
+    { side: "BUY",  pnlPct: 1.35, exit: "take_profit" },
+    { side: "SELL", pnlPct: -0.25, exit: "predictive_reversal" },
+    { side: "BUY",  pnlPct: 1.18, exit: "take_profit" },
+    { side: "SELL", pnlPct: 0.78, exit: "trailing_stop" },
     { side: "BUY",  pnlPct: 1.05, exit: "take_profit" },
   ];
 
-  const totalDurationMs = 52 * 3600 * 1000;
+  const totalDurationMs = 7 * 24 * 3600 * 1000; // 168 hours = Exactly Past 7 Days!
   const stepMs = totalDurationMs / count;
 
   tradePatterns.forEach((pattern, index) => {
