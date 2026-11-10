@@ -530,6 +530,24 @@ export default {
       return jsonResponse({ success: true, message: "State reset to default", state: computeMetrics(fresh) });
     }
 
+    // 8. Test Telegram Notification (proxies to Render backend)
+    if (path === "/api/v1/notification/test-telegram" || path === "/api/telegram/test") {
+      try {
+        const renderRes = await fetch(`${RENDER_BACKEND_URL}/api/v1/notification/test-telegram`, {
+          method: request.method,
+          headers: { "Accept": "application/json" },
+        });
+        const data = await renderRes.json();
+        return jsonResponse(data, renderRes.status);
+      } catch (e) {
+        return jsonResponse({
+          success: false,
+          error: "Render backend is waking up or temporarily unreachable.",
+          detail: e.message,
+        }, 502);
+      }
+    }
+
     // ── STATIC ASSETS ─────────────────────────────────────────────────────────
     if (env && env.ASSETS) {
       return env.ASSETS.fetch(request);

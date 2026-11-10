@@ -9,36 +9,78 @@ Sends instant real-time alerts to Telegram and Discord on:
 """
 import os
 import logging
+import requests
 import httpx
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
+
+def get_telegram_creds():
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    return token, chat_id
 
 
-async def send_telegram_alert(message: str) -> bool:
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        return False
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+def get_discord_webhook():
+    return os.getenv("DISCORD_WEBHOOK_URL", "").strip()
+
+
+def send_telegram_alert_sync(message: str) -> dict:
+    """
+    Synchronous Telegram delivery using requests.
+    Thread-safe and loop-independent.
+    """
+    token, chat_id = get_telegram_creds()
+    if not token or not chat_id:
+        msg = f"Telegram skipped: token_set={bool(token)}, chat_id_set={bool(chat_id)}"
+        logger.warning(msg)
+        return {"success": False, "error": msg, "token_set": bool(token), "chat_id_set": bool(chat_id)}
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": chat_id,
         "text": message,
         "parse_mode": "Markdown",
     }
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            res = await client.post(url, json=payload)
-            return res.is_success
+        res = requests.post(url, json=payload, timeout=8)
+        data = res.json()
+        if res.ok and data.get("ok"):
+            logger.info("Telegram alert delivered successfully.")
+            return {"success": True, "data": data}
+        
+        # If Markdown entity parsing failed, retry with plain text
+        if "can't parse entities" in str(data.get("description", "")):
+            payload.pop("parse_mode", None)
+            res2 = requests.post(url, json=payload, timeout=8)
+            data2 = res2.json()
+            if res2.ok and data2.get("ok"):
+                logger.info("Telegram alert delivered via plain text fallback.")
+                return {"success": True, "data": data2}
+
+        logger.error(f"Telegram API error {res.status_code}: {res.text}")
+        return {"success": False, "status_code": res.status_code, "error": data.get("description", res.text)}
     except Exception as e:
-        logger.warning(f"Telegram notification error: {e}")
-        return False
+        logger.error(f"Telegram notification exception: {e}")
+        return {"success": False, "error": str(e)}
+
+
+async def send_telegram_alert(message: str) -> bool:
+    """Async wrapper for send_telegram_alert_sync."""
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+        res = await loop.run_in_executor(None, send_telegram_alert_sync, message)
+        return res.get("success", False)
+    except RuntimeError:
+        res = send_telegram_alert_sync(message)
+        return res.get("success", False)
 
 
 async def send_discord_alert(title: str, description: str, color: int = 0x00FF00) -> bool:
-    if not DISCORD_WEBHOOK_URL:
+    webhook = get_discord_webhook()
+    if not webhook:
         return False
     payload = {
         "embeds": [
@@ -51,17 +93,17 @@ async def send_discord_alert(title: str, description: str, color: int = 0x00FF00
         ]
     }
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            res = await client.post(DISCORD_WEBHOOK_URL, json=payload)
+        async with httpx.AsyncClient(timeout=8) as client:
+            res = await client.post(webhook, json=payload)
             return res.is_success
     except Exception as e:
         logger.warning(f"Discord notification error: {e}")
         return False
 
 
-async def notify_trade_event(event_type: str, details: dict):
+def notify_trade_event_sync(event_type: str, details: dict):
     """
-    Unified dispatcher called on all trade events.
+    Synchronous notification dispatcher safe to call from any thread or callback.
     """
     side = details.get("side", "BUY")
     price = details.get("price", details.get("entry_price", details.get("exit_price", 0.0)))
@@ -73,7 +115,7 @@ async def notify_trade_event(event_type: str, details: dict):
         msg = (
             f"*{title}*\n"
             f"• *Entry Price*: ${price:,.2f}\n"
-            f"• *Quantity*: {details.get('quantity_btc', 1.0)} BTC\n"
+            f"• *Quantity*: {details.get('quantity_btc', 1.0):.4f} BTC\n"
             f"• *Reason*: {details.get('reason', 'AI+TA Convergence')}\n"
             f"• *Stop-Loss*: ${details.get('stop_loss', 0.0):,.2f}\n"
             f"• *Target*: ${details.get('take_profit', 0.0):,.2f}"
@@ -97,6 +139,14 @@ async def notify_trade_event(event_type: str, details: dict):
         color = 0x1E90FF
 
     logger.info(f"[NOTIFIER] {title}")
-    await send_telegram_alert(msg)
-    await send_discord_alert(title, msg, color=color)
+    send_telegram_alert_sync(msg)
 
+
+async def notify_trade_event(event_type: str, details: dict):
+    """Async wrapper for notify_trade_event_sync."""
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, notify_trade_event_sync, event_type, details)
+    except RuntimeError:
+        notify_trade_event_sync(event_type, details)

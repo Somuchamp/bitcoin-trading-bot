@@ -215,6 +215,55 @@ def get_model_status():
     return registry.get_model(settings.model.version) or {"status": "not_found"}
 
 
+@app.api_route("/api/v1/notification/test-telegram", methods=["GET", "POST"])
+def test_telegram_notification():
+    """
+    Test endpoint to verify Telegram Bot configuration and deliver an instant test alert.
+    Returns exact diagnostics: whether TOKEN/CHAT_ID are present and what Telegram's API responds.
+    """
+    from src.notification.notifier import get_telegram_creds, send_telegram_alert_sync
+    token, chat_id = get_telegram_creds()
+
+    token_preview = f"{token[:8]}...{token[-4:]}" if len(token) > 12 else ("SET" if token else "MISSING")
+    chat_id_preview = f"{chat_id[:4]}***" if len(chat_id) > 4 else ("SET" if chat_id else "MISSING")
+
+    diag = {
+        "TELEGRAM_BOT_TOKEN_present": bool(token),
+        "TELEGRAM_BOT_TOKEN_preview": token_preview,
+        "TELEGRAM_CHAT_ID_present": bool(chat_id),
+        "TELEGRAM_CHAT_ID_preview": chat_id_preview,
+    }
+
+    if not token:
+        return {
+            "success": False,
+            "error": "TELEGRAM_BOT_TOKEN is not set in Render Environment Variables.",
+            "diagnostics": diag,
+            "action_required": "In Render Dashboard -> Environment -> add variable TELEGRAM_BOT_TOKEN with the token from @BotFather, then click 'Save, rebuild, and deploy'."
+        }
+
+    if not chat_id:
+        return {
+            "success": False,
+            "error": "TELEGRAM_CHAT_ID is not set in Render Environment Variables.",
+            "diagnostics": diag,
+            "action_required": "In Telegram: 1) Open @userinfobot and tap Start to get your numeric ID. 2) Open your trading bot and tap Start. 3) In Render Dashboard -> Environment -> add variable TELEGRAM_CHAT_ID with your numeric ID, then click 'Save, rebuild, and deploy'."
+        }
+
+    test_msg = (
+        "🤖 *Bitcoin Autonomous Trading Bot*\n\n"
+        "✅ *Telegram alerts are successfully connected!*\n"
+        "You will now receive instant push notifications whenever trades are opened, "
+        "trailing stops adjust, or profits are harvested."
+    )
+    result = send_telegram_alert_sync(test_msg)
+    return {
+        "success": result.get("success", False),
+        "diagnostics": diag,
+        "telegram_api_result": result,
+    }
+
+
 @app.get("/api/v1/portfolio")
 def get_portfolio(db: Session = Depends(get_db)):
     """Returns the live paper trading portfolio — balance, P&L, open position, trade history."""
