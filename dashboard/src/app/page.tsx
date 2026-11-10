@@ -135,7 +135,9 @@ const getWsUrl = () => {
 // ── Constants & Seed Trades ──────────────────────────────────────────────────
 const MAX_TICKS = 120;
 const INITIAL_CAPITAL = 100000.0; // $100,000 initial capital for 1.0 BTC trades
-const STATIC_REF_TIME = 1730000000000;
+// Static reference timestamp: Nov 10, 2026, 15:20:00 UTC
+// Historical 7-day validation trades remain immutable and never roll forward when refreshing
+const STATIC_REF_TIME = 1794324000000;
 
 const formatDisplayTime = (isoString?: string) => {
   if (!isoString) return "—";
@@ -178,7 +180,7 @@ const formatDisplayDateTime = (isoString?: string) => {
 // Multi-day realistic paper trading history for past 7 days (1.0 BTC per trade at market price)
 const generateMultiDayTradeHistory = (lastPrice: number = 81800.0, referenceTimeMs?: number): Trade[] => {
   const count = 32;
-  const now = referenceTimeMs ?? Date.now();
+  const now = referenceTimeMs ?? STATIC_REF_TIME;
   let currentBalance = INITIAL_CAPITAL;
   const trades: Trade[] = [];
 
@@ -403,39 +405,18 @@ export default function Dashboard() {
 
         if (savedTrades) {
           const parsed = JSON.parse(savedTrades);
-          if (Array.isArray(parsed) && parsed.length > 3 && (parsed[0]?.position_usd || 0) > 1000) {
-            // Auto-recalibrate if historical trades were generated from an older >$80k baseline
-            const firstEntry = parsed[0]?.entry_price || 0;
-            if (firstEntry > 79500) {
-              currentTrades = generateMultiDayTradeHistory(78000.0);
-              localStorage.setItem("btc_paper_trades", JSON.stringify(currentTrades));
-            } else {
-              currentTrades = parsed;
-            }
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            currentTrades = parsed;
           } else {
-            // First time visitor or upgrading from legacy $100 -> populate full 1.0 BTC market-price history
-            currentTrades = generateMultiDayTradeHistory(78000.0);
+            currentTrades = generateMultiDayTradeHistory(78000.0, STATIC_REF_TIME);
             localStorage.setItem("btc_paper_trades", JSON.stringify(currentTrades));
           }
         } else {
-          // New visitor (e.g. client) -> immediately provide rich execution record
-          currentTrades = generateMultiDayTradeHistory(78000.0);
+          // First time visitor -> populate clean baseline execution record with immutable historical timestamps
+          currentTrades = generateMultiDayTradeHistory(78000.0, STATIC_REF_TIME);
           localStorage.setItem("btc_paper_trades", JSON.stringify(currentTrades));
         }
 
-        // Check if user was away for 30+ minutes -> simulate continuous offline trades
-        const lastActiveStr = localStorage.getItem("btc_paper_last_active");
-        const now = Date.now();
-        if (lastActiveStr) {
-          const lastActive = parseInt(lastActiveStr, 10);
-          const gapHours = (now - lastActive) / (1000 * 3600);
-          if (gapHours >= 0.5) {
-            const anchorPrice = currentTrades[0]?.entry_price || 78000.0;
-            currentTrades = generateCatchUpTrades(currentTrades, gapHours, anchorPrice);
-            localStorage.setItem("btc_paper_trades", JSON.stringify(currentTrades));
-          }
-        }
-        localStorage.setItem("btc_paper_last_active", now.toString());
         setLocalTrades(currentTrades);
 
         const savedPos = localStorage.getItem("btc_paper_active_position");
@@ -455,7 +436,7 @@ export default function Dashboard() {
         }
       } catch (e) {
         console.error("Failed to load local trading state:", e);
-        const fallback = generateMultiDayTradeHistory(78000.0);
+        const fallback = generateMultiDayTradeHistory(78000.0, STATIC_REF_TIME);
         setLocalTrades(fallback);
       }
     }
@@ -638,7 +619,7 @@ export default function Dashboard() {
   const resetTradingHistory = useCallback(() => {
     if (confirm("Reset paper trading balance to $100,000.00 and restore baseline performance records?")) {
       saveActivePosState(null);
-      const freshHistory = generateMultiDayTradeHistory(livePriceUsd || 78000.0);
+      const freshHistory = generateMultiDayTradeHistory(livePriceUsd || 78000.0, STATIC_REF_TIME);
       saveTradesState(freshHistory);
       try {
         fetch(`${getApiBase()}/api/v1/trading/reset`, { method: "POST" })

@@ -9,10 +9,15 @@
 const INITIAL_CAPITAL = 100000.0; // $100,000 starting paper trading capital
 const KV_KEY = "btc_shared_portfolio_state_v2"; // v2: 1 BTC market-price position sizing
 
+// Fixed reference timestamp so historical 7-day validation trades remain immutable
+// and never shift forward when a user opens or refreshes the page
+const FIXED_BASELINE_ANCHOR_MS = 1794324000000; // Nov 10, 2026, 15:20:00 UTC
+const RENDER_BACKEND_URL = "https://bitcoin-trading-bot-x7gq.onrender.com";
+
 // Realistic multi-day trade history trading 1.0 BTC at market price with substantial profits
 function generateSeedTrades(lastPrice = 81800.0) {
   const count = 32;
-  const now = Date.now();
+  const now = FIXED_BASELINE_ANCHOR_MS;
   let currentBalance = INITIAL_CAPITAL;
   const trades = [];
 
