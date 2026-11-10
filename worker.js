@@ -541,6 +541,16 @@ export default {
   // ── BACKGROUND CRON TRIGGER (Autonomous 24/7 Cloud Trading) ───────────────
   async scheduled(controller, env, ctx) {
     try {
+      // 1. Keep Render backend awake 24/7 in the cloud so it NEVER sleeps
+      if (ctx && ctx.waitUntil) {
+        ctx.waitUntil(
+          fetch(`${RENDER_BACKEND_URL}/health`).catch(() => {})
+        );
+      } else {
+        fetch(`${RENDER_BACKEND_URL}/health`).catch(() => {});
+      }
+
+      // 2. Evaluate market momentum on latest live price
       const res = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
       if (!res.ok) return;
       const data = await res.json();
