@@ -169,7 +169,7 @@ const formatDisplayDateTime = (isoString?: string) => {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
-      hour12: false,
+      hour12: true,
     });
     return { date, time };
   } catch {
@@ -373,7 +373,16 @@ export default function Dashboard() {
   const ticksRef = useRef<PriceTick[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastScalpCheck = useRef<number>(Date.now());
+  const livePriceRef = useRef<number | null>(null);
+  const prevPriceRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    livePriceRef.current = livePriceUsd;
+  }, [livePriceUsd]);
+
+  useEffect(() => {
+    prevPriceRef.current = prevPriceUsd;
+  }, [prevPriceUsd]);
 
   // Keep refs in sync
   useEffect(() => {
@@ -486,12 +495,22 @@ export default function Dashboard() {
       const res = await fetch(`${getApiBase()}/api/v1/portfolio`);
       if (res.ok) {
         const data = await res.json();
-        if (data && Array.isArray(data.recent_trades) && data.recent_trades.length > 0) {
+        if (data && typeof data.mode === "string") {
           setBackendPortfolio(data);
           if (data.open_position) {
-            activePosRef.current = data.open_position;
-            setActivePosition(data.open_position);
-          } else if (data.open_position === null) {
+            const openPos: LocalPosition = {
+              ...data.open_position,
+              take_profit_price:
+                data.open_position.take_profit_price ||
+                (data.open_position.side === "BUY"
+                  ? data.open_position.entry_price * 1.010
+                  : data.open_position.entry_price * 0.990),
+              highest_price: data.open_position.highest_price || data.open_position.entry_price,
+              lowest_price: data.open_position.lowest_price || data.open_position.entry_price,
+            };
+            activePosRef.current = openPos;
+            setActivePosition(openPos);
+          } else {
             activePosRef.current = null;
             setActivePosition(null);
             if (typeof window !== "undefined") {
@@ -677,13 +696,9 @@ export default function Dashboard() {
           return next.slice(-MAX_TICKS);
         });
 
-        // ── Real-Time Position & Trailing Stop Updates ──
+        // ── Real-Time Position Unrealized P&L & Trailing Stop Preview ──
         const pos = activePosRef.current;
         if (pos) {
-          let updatedHighest = pos.highest_price;
-          let updatedLowest = pos.lowest_price;
-          let updatedStop = pos.stop_loss_price;
-
           const isBuy = pos.side === "BUY";
           const currentPnlUsd = isBuy
             ? (priceUsd - pos.entry_price) * pos.quantity_btc
@@ -692,40 +707,21 @@ export default function Dashboard() {
             ? ((priceUsd - pos.entry_price) / pos.entry_price) * 100
             : ((pos.entry_price - priceUsd) / pos.entry_price) * 100;
 
-          if (isBuy) {
-            if (priceUsd > updatedHighest) {
-              updatedHighest = priceUsd;
-              // Trail stop loss 0.4% behind peak price
-              const newTrailingStop = priceUsd * 0.996;
-              if (newTrailingStop > updatedStop) {
-                updatedStop = newTrailingStop;
-              }
-            }
+          let updatedHighest = pos.highest_price || pos.entry_price;
+          let updatedLowest = pos.lowest_price || pos.entry_price;
+          let updatedStop = pos.stop_loss_price;
 
-            // Protective Exit Conditions
-            if (priceUsd <= updatedStop) {
-              closePosition("trailing_stop", priceUsd);
-              return;
-            } else if (priceUsd >= pos.take_profit_price) {
-              closePosition("take_profit", priceUsd);
-              return;
+          if (isBuy && priceUsd > updatedHighest) {
+            updatedHighest = priceUsd;
+            const newTrailingStop = priceUsd * 0.996;
+            if (newTrailingStop > updatedStop) {
+              updatedStop = newTrailingStop;
             }
-          } else {
-            // SELL (Short)
-            if (priceUsd < updatedLowest) {
-              updatedLowest = priceUsd;
-              const newTrailingStop = priceUsd * 1.004;
-              if (newTrailingStop < updatedStop) {
-                updatedStop = newTrailingStop;
-              }
-            }
-
-            if (priceUsd >= updatedStop) {
-              closePosition("trailing_stop", priceUsd);
-              return;
-            } else if (priceUsd <= pos.take_profit_price) {
-              closePosition("take_profit", priceUsd);
-              return;
+          } else if (!isBuy && priceUsd < updatedLowest) {
+            updatedLowest = priceUsd;
+            const newTrailingStop = priceUsd * 1.004;
+            if (newTrailingStop < updatedStop) {
+              updatedStop = newTrailingStop;
             }
           }
 
@@ -738,27 +734,6 @@ export default function Dashboard() {
             unrealized_pnl_pct: parseFloat(currentPnlPct.toFixed(2)),
           });
         }
-
-        // ── Autonomous Scalper Loop (runs every 30-45 seconds) ──
-        const now = Date.now();
-        if (autoTradingRef.current && !activePosRef.current && now - lastScalpCheck.current > 35000) {
-          lastScalpCheck.current = now;
-          const recentTicks = ticksRef.current;
-          if (recentTicks.length >= 10) {
-            const firstPrice = recentTicks[recentTicks.length - 10].price_usd;
-            const deltaPct = ((priceUsd - firstPrice) / firstPrice) * 100;
-
-            if (deltaPct > 0.01) {
-              openPosition("BUY", priceUsd, "auto_momentum");
-            } else if (deltaPct < -0.01) {
-              openPosition("SELL", priceUsd, "auto_momentum");
-            } else {
-              // Flat market default demo trade
-              const randomSide = Math.random() > 0.4 ? "BUY" : "SELL";
-              openPosition(randomSide, priceUsd, "micro_scalp");
-            }
-          }
-        }
       } catch (e) {
         console.error("WS tick parse error:", e);
       }
@@ -770,7 +745,7 @@ export default function Dashboard() {
     };
 
     ws.onerror = () => ws.close();
-  }, [usdtRate, closePosition, openPosition]);
+  }, [usdtRate]);
 
   useEffect(() => {
     connectWs();
@@ -847,11 +822,11 @@ export default function Dashboard() {
         // Fallback to dynamic autonomous model output
       }
 
-      const curPrice = livePriceUsd || 78020.0;
-      const trendUp = prevPriceUsd ? curPrice >= prevPriceUsd : true;
-      const probUp = trendUp ? 0.62 + (Math.random() * 0.12) : 0.18 + (Math.random() * 0.08);
-      const probDown = trendUp ? 0.16 + (Math.random() * 0.08) : 0.60 + (Math.random() * 0.14);
-      const probNeutral = Math.max(0.06, 1.0 - (probUp + probDown));
+      const curPrice = livePriceRef.current || 74000.0;
+      const trendUp = prevPriceRef.current ? curPrice >= prevPriceRef.current : true;
+      const probUp = trendUp ? 0.48 : 0.24;
+      const probDown = trendUp ? 0.22 : 0.48;
+      const probNeutral = Math.max(0.10, 1.0 - (probUp + probDown));
       const predClass = trendUp ? "UP" : "DOWN";
       const conf = trendUp ? probUp : probDown;
 
@@ -865,19 +840,35 @@ export default function Dashboard() {
         probability_up: parseFloat(probUp.toFixed(2)),
         predicted_class: predClass,
         confidence: parseFloat(conf.toFixed(2)),
-        model_version: "v2-xgboost (Autonomous)",
+        model_version: "v2-xgboost (Edge Fallback)",
       });
+    };
+
+    const loadLatestAlert = async () => {
+      try {
+        const res = await fetch(`${getApiBase()}/api/v1/alerts/latest`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.action) {
+            setBotAlert(data);
+          }
+        }
+      } catch {
+        // Ignored
+      }
     };
 
     loadPrediction();
     loadPortfolio();
+    loadLatestAlert();
 
     const interval = setInterval(() => {
       loadPrediction();
       loadPortfolio();
-    }, 3500);
+      loadLatestAlert();
+    }, 4000);
     return () => clearInterval(interval);
-  }, [loadPortfolio, livePriceUsd, prevPriceUsd]);
+  }, [loadPortfolio]);
 
   // ── Derived Performance Metrics ────────────────────────────────────────────
   const tradesToDisplay = (backendPortfolio && backendPortfolio.recent_trades?.length > 0)
@@ -965,8 +956,25 @@ export default function Dashboard() {
   const domainMin = ticks.length > 1 ? Math.min(...ticks.map((t) => t.price_usd)) * 0.9999 : "auto";
   const domainMax = ticks.length > 1 ? Math.max(...ticks.map((t) => t.price_usd)) * 1.0001 : "auto";
 
-  const hasOpenPos = !!activePosition || !!backendPortfolio?.open_position;
-  const effectiveOpenPos = activePosition || backendPortfolio?.open_position;
+  const rawOpenPos = backendPortfolio?.open_position || activePosition;
+  const effectiveOpenPos = rawOpenPos
+    ? (() => {
+        if (!livePriceUsd || !rawOpenPos.entry_price) return rawOpenPos;
+        const isBuy = rawOpenPos.side === "BUY";
+        const pnlUsd = isBuy
+          ? (livePriceUsd - rawOpenPos.entry_price) * rawOpenPos.quantity_btc
+          : (rawOpenPos.entry_price - livePriceUsd) * rawOpenPos.quantity_btc;
+        const pnlPct = isBuy
+          ? ((livePriceUsd - rawOpenPos.entry_price) / rawOpenPos.entry_price) * 100
+          : ((rawOpenPos.entry_price - livePriceUsd) / rawOpenPos.entry_price) * 100;
+        return {
+          ...rawOpenPos,
+          unrealized_pnl_usd: parseFloat(pnlUsd.toFixed(2)),
+          unrealized_pnl_pct: parseFloat(pnlPct.toFixed(2)),
+        };
+      })()
+    : null;
+  const hasOpenPos = !!effectiveOpenPos;
   const pnlIsPositive = totalNetPnlUsd >= 0;
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1566,7 +1574,7 @@ export default function Dashboard() {
                   <th className="py-2.5 px-3">Return (%)</th>
                   <th className="py-2.5 px-3">Withdrawal Reason</th>
                   <th className="py-2.5 px-3">Balance After</th>
-                  <th className="py-2.5 px-3">Closed Date &amp; Time (UTC)</th>
+                  <th className="py-2.5 px-3">Closed Date &amp; Time</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -1627,7 +1635,7 @@ export default function Dashboard() {
                                 {formatDisplayDateTime(t.closed_at).date}
                               </span>
                               <span className="text-slate-500 text-[10px] font-mono">
-                                {formatDisplayDateTime(t.closed_at).time} UTC
+                                {formatDisplayDateTime(t.closed_at).time}
                               </span>
                             </div>
                           ) : (

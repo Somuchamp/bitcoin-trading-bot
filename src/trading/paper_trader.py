@@ -28,6 +28,8 @@ class PaperTrader:
         risk_manager: Optional[RiskManager] = None,
         reversal_confidence_threshold: float = 0.50,
         on_trade_closed: Optional[Callable[[dict], None]] = None,
+        fixed_btc_size: Optional[float] = None,
+        take_profit_pct: float = 0.010,
     ):
         self.balance_usd = initial_capital_usd
         self.initial_capital = initial_capital_usd
@@ -35,6 +37,8 @@ class PaperTrader:
         self.risk_manager = risk_manager or RiskManager()
         self.reversal_confidence_threshold = reversal_confidence_threshold
         self.on_trade_closed = on_trade_closed
+        self.fixed_btc_size = fixed_btc_size
+        self.take_profit_pct = take_profit_pct
         self.trade_history: List[dict] = []
         self.total_trades = 0
         self.winning_trades = 0
@@ -122,8 +126,13 @@ class PaperTrader:
             result["reason"] = result["reason"] or reason
             return result
 
-        # Position sizing (never risk more than max_position_usd)
-        position_usd = min(self.risk_manager.max_position_usd, self.balance_usd * 0.95)
+        # Position sizing (exact fixed BTC size when requested, capped by risk limits & balance)
+        target_usd = (
+            current_price * self.fixed_btc_size
+            if self.fixed_btc_size and self.fixed_btc_size > 0
+            else self.risk_manager.max_position_usd
+        )
+        position_usd = min(target_usd, self.risk_manager.max_position_usd, self.balance_usd * 0.95)
         if position_usd < 10:
             result["reason"] = f"Insufficient balance (${self.balance_usd:.2f})"
             return result
@@ -151,8 +160,13 @@ class PaperTrader:
 
         pos = self.risk_manager.open_position
         is_buy = pos.side == "BUY"
-        # 1.2% take-profit target
-        take_profit_hit = (current_price >= pos.entry_price * 1.012) if is_buy else (current_price <= pos.entry_price * 0.988)
+        # Dynamic take-profit target (default 1.0%)
+        take_profit_price = (
+            pos.entry_price * (1 + self.take_profit_pct)
+            if is_buy
+            else pos.entry_price * (1 - self.take_profit_pct)
+        )
+        take_profit_hit = (current_price >= take_profit_price) if is_buy else (current_price <= take_profit_price)
         if take_profit_hit:
             closed = self._record_closed_trade("take_profit", current_price)
             logger.info(f"TAKE PROFIT harvested at ${current_price:,.2f} | PnL: ${closed.get('pnl_usd', 0):+.2f}")
@@ -242,16 +256,33 @@ class PaperTrader:
         if pos:
             unrealized = pos.unrealized_pnl(current_price) if current_price else 0.0
             unrealized_pct = pos.pnl_pct(current_price) * 100 if current_price else 0.0
+            tp_price = (
+                pos.entry_price * (1 + self.take_profit_pct)
+                if pos.side == "BUY"
+                else pos.entry_price * (1 - self.take_profit_pct)
+            )
             open_pos_dict = {
                 "side": pos.side,
                 "entry_price": pos.entry_price,
                 "quantity_btc": pos.quantity_btc,
-                "usd_value": pos.usd_value,
-                "stop_loss_price": pos.stop_loss_price,
+                "usd_value": round(pos.usd_value, 2),
+                "stop_loss_price": round(pos.stop_loss_price, 2),
+                "take_profit_price": round(tp_price, 2),
+                "highest_price": round(pos.highest_price, 2),
+                "lowest_price": round(pos.lowest_price, 2),
                 "opened_at": pos.opened_at.isoformat(),
                 "unrealized_pnl_usd": round(unrealized, 2),
                 "unrealized_pnl_pct": round(unrealized_pct, 2),
             }
+
+        recent_normalized = []
+        for t in reversed(self.trade_history[-50:]):
+            item = dict(t)
+            if "exit_reason" not in item and "reason" in item:
+                item["exit_reason"] = item["reason"]
+            if "position_usd" not in item:
+                item["position_usd"] = round((item.get("entry_price") or 0.0) * (item.get("quantity_btc") or 0.0), 2)
+            recent_normalized.append(item)
 
         return {
             "mode": "PAPER_TRADING",
@@ -266,6 +297,6 @@ class PaperTrader:
             "profit_factor": round(self.profit_factor, 2) if self.profit_factor != float("inf") else 999.0,
             "max_drawdown_pct": round(self.max_drawdown_pct, 2),
             "open_position": open_pos_dict,
-            "recent_trades": self.trade_history[-15:],
+            "recent_trades": recent_normalized,
         }
 

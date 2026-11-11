@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -29,15 +30,17 @@ class LiveWorker:
         risk_mgr = RiskManager(
             max_position_usd=100000.0,  # Max position sized for 1.0 BTC market price
             stop_loss_pct=0.01,        # 1% stop-loss
-            trailing_stop_pct=0.005,   # 0.5% dynamic trailing stop
+            trailing_stop_pct=0.004,   # 0.4% dynamic trailing stop
             max_daily_loss_usd=5000.0, # Sized for 1.0 BTC daily limit
-            min_confidence=0.40,       # 3-class model confidence threshold (random baseline = 33%)
+            min_confidence=0.37,       # 3-class model confidence threshold (random baseline = 33.3%)
         )
         self.trader = PaperTrader(
             initial_capital_usd=100000.0,
             risk_manager=risk_mgr,
-            reversal_confidence_threshold=0.45, # Exit on anticipated reversal
+            reversal_confidence_threshold=0.44, # Exit on anticipated reversal
             on_trade_closed=self.save_trade,
+            fixed_btc_size=1.0,
+            take_profit_pct=0.010,
         )
 
         # Restore previous trade state if any exist
@@ -122,48 +125,52 @@ class LiveWorker:
             # Clear active open position
             db.query(PositionRecord).delete()
 
-            opened_at_val = None
+            opened_at_val = datetime.now(timezone.utc)
             if closed_trade.get("opened_at"):
                 try:
-                    opened_at_val = pd.to_datetime(closed_trade["opened_at"], utc=True)
+                    opened_at_val = pd.to_datetime(closed_trade["opened_at"], utc=True).to_pydatetime()
                 except Exception:
                     opened_at_val = datetime.now(timezone.utc)
 
-            closed_at_val = None
+            closed_at_val = datetime.now(timezone.utc)
             if closed_trade.get("closed_at"):
                 try:
-                    closed_at_val = pd.to_datetime(closed_trade["closed_at"], utc=True)
+                    closed_at_val = pd.to_datetime(closed_trade["closed_at"], utc=True).to_pydatetime()
                 except Exception:
                     closed_at_val = datetime.now(timezone.utc)
 
             record = TradeRecord(
                 symbol=settings.market.symbol,
                 side=closed_trade.get("side", "BUY"),
-                entry_price=closed_trade.get("entry_price", 0.0),
-                exit_price=closed_trade.get("exit_price", 0.0),
-                quantity_btc=closed_trade.get("quantity_btc", 0.0),
-                position_usd=round((closed_trade.get("entry_price", 0.0) or 0.0) * (closed_trade.get("quantity_btc", 0.0) or 0.0), 2),
-                pnl_usd=closed_trade.get("pnl_usd", 0.0),
-                pnl_pct=closed_trade.get("pnl_pct", 0.0),
+                entry_price=float(closed_trade.get("entry_price", 0.0)),
+                exit_price=float(closed_trade.get("exit_price", 0.0)),
+                quantity_btc=float(closed_trade.get("quantity_btc", 0.0)),
+                position_usd=round(float(closed_trade.get("entry_price", 0.0) or 0.0) * float(closed_trade.get("quantity_btc", 0.0) or 0.0), 2),
+                pnl_usd=float(closed_trade.get("pnl_usd", 0.0)),
+                pnl_pct=float(closed_trade.get("pnl_pct", 0.0)),
                 exit_reason=closed_trade.get("reason", "unknown"),
                 opened_at=opened_at_val,
                 closed_at=closed_at_val,
-                balance_after=closed_trade.get("balance_after", self.trader.balance_usd),
+                balance_after=float(closed_trade.get("balance_after", self.trader.balance_usd)),
             )
             db.add(record)
             db.commit()
             logger.info(f"Trade successfully saved to DB: #{record.id} {record.side} PnL=${record.pnl_usd:+.2f} ({record.exit_reason})")
-
-            # Async push notification (Telegram / Discord)
-            try:
-                from src.notification.notifier import notify_trade_event
-                asyncio.create_task(notify_trade_event("CLOSE", closed_trade))
-            except Exception:
-                pass
         except Exception as e:
             logger.error(f"Failed to save trade to DB: {e}")
         finally:
             db.close()
+
+        # Thread-safe push notification (Telegram / Discord) outside DB lifecycle
+        try:
+            from src.notification.notifier import notify_trade_event_sync
+            threading.Thread(
+                target=notify_trade_event_sync,
+                args=("CLOSE", dict(closed_trade)),
+                daemon=True,
+            ).start()
+        except Exception as e:
+            logger.warning(f"Failed to dispatch CLOSE alert thread: {e}")
 
     async def on_candle_closed(self, candle_data: dict):
         logger.info(f"Candle closed at {candle_data['close_time']}. Price: {candle_data['close']}")
@@ -192,11 +199,9 @@ class LiveWorker:
             macd_hist = float(features_df["macd_histogram_pct"].iloc[0]) if "macd_histogram_pct" in features_df else 0.0
             price_vs_sma50 = float(features_df["price_vs_sma_50"].iloc[0]) if "price_vs_sma_50" in features_df else 0.0
 
-            # Technical confirmation rules:
-            # Bullish Convergence: Price near/above SMA50, RSI not overbought (<68), and MACD histogram positive
-            ta_bullish = (price_vs_sma50 > -0.01) and (rsi < 68.0) and (macd_hist > -0.001)
-            # Bearish Convergence: Price near/below SMA50, RSI not oversold (>32), and MACD histogram negative
-            ta_bearish = (price_vs_sma50 < 0.01) and (rsi > 32.0) and (macd_hist < 0.001)
+            # Technical confirmation rules (allow healthy bounce/pullback entries while blocking extremes):
+            ta_bullish = (price_vs_sma50 > -0.025) and (rsi < 70.0) and (macd_hist > -0.002)
+            ta_bearish = (price_vs_sma50 < 0.025) and (rsi > 30.0) and (macd_hist < 0.002)
 
             signal = raw_signal
             if raw_signal == "UP" and not ta_bullish:
@@ -228,23 +233,23 @@ class LiveWorker:
             # 6. Save prediction to database
             self.save_prediction(candle_data, prediction)
             
-            # 7. Save alert if a new trade is opened or closed
+            # 7. Save alert and dispatch instant notification if a trade opened or closed
             if action.startswith("OPEN_"):
                 self.save_alert(candle_data, action, candle_data["close"], confidence)
                 try:
                     from src.notification.notifier import notify_trade_event
                     pos = self.trader.risk_manager.open_position
                     if pos:
-                        asyncio.create_task(notify_trade_event("OPEN", {
+                        await notify_trade_event("OPEN", {
                             "side": pos.side,
                             "entry_price": pos.entry_price,
                             "quantity_btc": pos.quantity_btc,
                             "reason": trade_result.get("reason", "AI+TA Convergence"),
                             "stop_loss": pos.stop_loss_price,
-                            "take_profit": pos.entry_price * (1.012 if pos.side == "BUY" else 0.988),
-                        }))
-                except Exception:
-                    pass
+                            "take_profit": pos.entry_price * (1.010 if pos.side == "BUY" else 0.990),
+                        })
+                except Exception as e:
+                    logger.warning(f"Failed to send OPEN alert: {e}")
             elif action.startswith("CLOSE_"):
                 self.save_alert(candle_data, action, candle_data["close"], confidence, status="CLOSED")
 
@@ -254,65 +259,79 @@ class LiveWorker:
     def save_prediction(self, candle_data: dict, prediction: dict):
         db = SessionLocal()
         try:
+            ts = pd.to_datetime(candle_data["open_time"], unit="ms", utc=True).to_pydatetime()
+            existing = db.query(PredictionRecord).filter(PredictionRecord.timestamp == ts).first()
+            if existing:
+                return
             record = PredictionRecord(
                 symbol=settings.market.symbol,
-                timestamp=pd.to_datetime(candle_data["open_time"], unit="ms", utc=True),
+                timestamp=ts,
                 horizon=settings.target.horizon,
-                price=candle_data["close"],
-                probability_down=prediction["probability_down"],
-                probability_neutral=prediction["probability_neutral"],
-                probability_up=prediction["probability_up"],
+                price=float(candle_data["close"]),
+                probability_down=float(prediction["probability_down"]),
+                probability_neutral=float(prediction["probability_neutral"]),
+                probability_up=float(prediction["probability_up"]),
                 predicted_class=prediction["predicted_class"],
-                confidence=prediction["confidence"],
+                confidence=float(prediction["confidence"]),
                 model_version=prediction["model_version"]
             )
             db.add(record)
             db.commit()
             logger.info("Prediction saved to database.")
+        except Exception as e:
+            logger.error(f"Failed to save prediction to DB: {e}")
         finally:
             db.close()
 
     def save_alert(self, candle_data: dict, action: str, current_price: float, confidence: float, status: str = "ACTIVE"):
         db = SessionLocal()
         try:
-            entry = current_price
+            entry = float(current_price)
             if "BUY" in action:
-                tp = entry * 1.025  # 2.5% take profit
-                sl = entry * 0.985  # 1.5% stop loss
+                tp = entry * 1.010
+                sl = entry * 0.990
             else:
-                tp = entry * 0.975
-                sl = entry * 1.015
+                tp = entry * 0.990
+                sl = entry * 1.010
                 
+            ts = pd.to_datetime(candle_data["open_time"], unit="ms", utc=True).to_pydatetime()
             record = AlertRecord(
-                timestamp=pd.to_datetime(candle_data["open_time"], unit="ms", utc=True),
+                timestamp=ts,
                 action=action,
                 entry_price=entry,
                 take_profit=tp,
                 stop_loss=sl,
-                confidence=confidence,
+                confidence=float(confidence),
                 status=status
             )
             db.add(record)
             db.commit()
             logger.info(f"Alert saved to database: {record.action} @ {record.entry_price}")
+        except Exception as e:
+            logger.error(f"Failed to save alert to DB: {e}")
         finally:
             db.close()
 
     def on_price_tick(self, current_price: float):
         """Processes live price ticks in real time to trigger dynamic trailing stops and profit targets."""
-        if not self.trader.risk_manager.open_position:
+        pos = self.trader.risk_manager.open_position
+        if not pos:
             return
+        prev_stop = pos.stop_loss_price
         result = self.trader.on_price_tick(current_price)
         if result:
             self.sync_open_position_to_db()
+        elif self.trader.risk_manager.open_position and abs(self.trader.risk_manager.open_position.stop_loss_price - prev_stop) >= 15.0:
+            # Persist raised trailing stop so restarts keep locked-in profit floor
+            self.sync_open_position_to_db()
 
     async def run(self):
-        # Process latest completed candle immediately on startup so DB is primed
-        if self.recent_data is not None and not self.recent_data.empty:
+        # Process latest completed candle (iloc[-2]; iloc[-1] is still forming on Binance REST)
+        if self.recent_data is not None and len(self.recent_data) >= 2:
             try:
-                latest = self.recent_data.iloc[-1].to_dict()
-                logger.info(f"Priming engine with latest completed candle: Close=${latest.get('close')}")
-                await self.on_candle_closed(latest)
+                latest_closed = self.recent_data.iloc[-2].to_dict()
+                logger.info(f"Priming engine with latest completed candle: Close=${latest_closed.get('close')}")
+                await self.on_candle_closed(latest_closed)
             except Exception as e:
                 logger.warning(f"Initial candle priming notice: {e}")
 

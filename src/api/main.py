@@ -92,28 +92,56 @@ def health_check():
     return {"status": "ok"}
 
 
+def _format_iso_utc(dt) -> str:
+    if dt is None:
+        return datetime.now(timezone.utc).isoformat()
+    ts = dt.isoformat()
+    return ts if ts.endswith(('Z', '+00:00')) else f"{ts}Z"
+
+
+def _serialize_prediction(p: PredictionRecord) -> dict:
+    return {
+        "id": p.id,
+        "symbol": p.symbol,
+        "timestamp": _format_iso_utc(p.timestamp),
+        "horizon": p.horizon,
+        "price": p.price,
+        "probability_down": p.probability_down,
+        "probability_neutral": p.probability_neutral,
+        "probability_up": p.probability_up,
+        "predicted_class": p.predicted_class,
+        "confidence": p.confidence,
+        "model_version": p.model_version,
+        "actual_outcome": p.actual_outcome,
+        "actual_return": p.actual_return,
+    }
+
+
+def _serialize_alert(a: AlertRecord) -> dict:
+    return {
+        "id": a.id,
+        "timestamp": _format_iso_utc(a.timestamp),
+        "action": a.action,
+        "entry_price": a.entry_price,
+        "take_profit": a.take_profit,
+        "stop_loss": a.stop_loss,
+        "confidence": a.confidence,
+        "status": a.status,
+    }
+
+
 @app.get("/api/v1/prediction/latest", response_model=PredictionResponse)
 def get_latest_prediction(db: Session = Depends(get_db)):
     prediction = db.query(PredictionRecord).order_by(desc(PredictionRecord.timestamp)).first()
     if not prediction:
         raise HTTPException(status_code=404, detail="No predictions found")
-    # format timestamp manually for pydantic, appending 'Z' since SQLite loses the timezone
-    res = prediction.__dict__
-    ts = res["timestamp"].isoformat()
-    res["timestamp"] = ts if ts.endswith(('Z', '+00:00')) else f"{ts}Z"
-    return res
+    return _serialize_prediction(prediction)
 
 
 @app.get("/api/v1/prediction/history", response_model=List[PredictionResponse])
 def get_prediction_history(limit: int = 100, db: Session = Depends(get_db)):
     predictions = db.query(PredictionRecord).order_by(desc(PredictionRecord.timestamp)).limit(limit).all()
-    results = []
-    for p in predictions:
-        res = p.__dict__
-        ts = res["timestamp"].isoformat()
-        res["timestamp"] = ts if ts.endswith(('Z', '+00:00')) else f"{ts}Z"
-        results.append(res)
-    return results
+    return [_serialize_prediction(p) for p in predictions]
 
 
 @app.get("/api/v1/alerts/latest", response_model=Optional[AlertResponse])
@@ -121,22 +149,13 @@ def get_latest_alert(db: Session = Depends(get_db)):
     alert = db.query(AlertRecord).order_by(desc(AlertRecord.timestamp)).first()
     if not alert:
         return None
-    res = alert.__dict__
-    ts = res["timestamp"].isoformat()
-    res["timestamp"] = ts if ts.endswith(('Z', '+00:00')) else f"{ts}Z"
-    return res
+    return _serialize_alert(alert)
 
 
 @app.get("/api/v1/alerts/history", response_model=List[AlertResponse])
 def get_alert_history(limit: int = 50, db: Session = Depends(get_db)):
     alerts = db.query(AlertRecord).order_by(desc(AlertRecord.timestamp)).limit(limit).all()
-    results = []
-    for a in alerts:
-        res = a.__dict__
-        ts = res["timestamp"].isoformat()
-        res["timestamp"] = ts if ts.endswith(('Z', '+00:00')) else f"{ts}Z"
-        results.append(res)
-    return results
+    return [_serialize_alert(a) for a in alerts]
 
 
 @app.get("/api/v1/trades/history", response_model=List[TradeResponse])
@@ -289,13 +308,16 @@ def get_portfolio(db: Session = Depends(get_db)):
     trade_dicts = []
     for t in trades:
         trade_dicts.append({
+            "id": t.id,
             "side": t.side,
             "entry_price": t.entry_price,
             "exit_price": t.exit_price,
             "quantity_btc": t.quantity_btc,
+            "position_usd": t.position_usd or round((t.entry_price or 0.0) * (t.quantity_btc or 0.0), 2),
             "pnl_usd": t.pnl_usd,
             "pnl_pct": t.pnl_pct,
             "reason": t.exit_reason,
+            "exit_reason": t.exit_reason,
             "opened_at": t.opened_at.isoformat() if t.opened_at else None,
             "closed_at": t.closed_at.isoformat() if t.closed_at else None,
             "balance_after": t.balance_after,
@@ -311,8 +333,10 @@ def get_portfolio(db: Session = Depends(get_db)):
         cur_price = latest_price if latest_price else open_pos.entry_price
         if open_pos.side == "BUY":
             unrealized = (cur_price - open_pos.entry_price) * open_pos.quantity_btc
+            tp_price = open_pos.entry_price * 1.010
         else:
             unrealized = (open_pos.entry_price - cur_price) * open_pos.quantity_btc
+            tp_price = open_pos.entry_price * 0.990
         unrealized_pct = (unrealized / open_pos.usd_value * 100) if open_pos.usd_value > 0 else 0.0
         open_pos_dict = {
             "side": open_pos.side,
@@ -320,6 +344,9 @@ def get_portfolio(db: Session = Depends(get_db)):
             "quantity_btc": open_pos.quantity_btc,
             "usd_value": open_pos.usd_value,
             "stop_loss_price": open_pos.stop_loss_price,
+            "take_profit_price": round(tp_price, 2),
+            "highest_price": open_pos.highest_price,
+            "lowest_price": open_pos.lowest_price,
             "opened_at": open_pos.opened_at.isoformat() if open_pos.opened_at else datetime.now(timezone.utc).isoformat(),
             "unrealized_pnl_usd": round(unrealized, 2),
             "unrealized_pnl_pct": round(unrealized_pct, 2),
@@ -340,6 +367,73 @@ def get_portfolio(db: Session = Depends(get_db)):
         "open_position": open_pos_dict,
         "recent_trades": trade_dicts,
     }
+
+
+class ManualTradeRequest(BaseModel):
+    side: str = "BUY"
+    price: Optional[float] = None
+    reason: str = "manual_execution"
+
+
+class ManualCloseRequest(BaseModel):
+    exit_price: Optional[float] = None
+    reason: str = "manual_withdrawal"
+
+
+@app.post("/api/v1/trade/execute")
+def execute_manual_trade(req: ManualTradeRequest, db: Session = Depends(get_db)):
+    """Opens a 1.0 BTC paper position cleanly on the Render backend and persists to Neon DB."""
+    from src.prediction.worker import _worker_instance
+    side = "SELL" if req.side.upper() == "SELL" else "BUY"
+    price = req.price or (_last_tick["price_usd"] if _last_tick else 0.0)
+    if not price or price <= 0:
+        raise HTTPException(status_code=400, detail="Live market price unavailable")
+
+    if _worker_instance is not None:
+        if _worker_instance.trader.risk_manager.open_position is not None:
+            raise HTTPException(status_code=400, detail="Position already open")
+        signal = "UP" if side == "BUY" else "DOWN"
+        res = _worker_instance.trader.execute_signal(signal=signal, confidence=0.80, current_price=float(price))
+        if _worker_instance.trader.risk_manager.open_position is not None:
+            _worker_instance.sync_open_position_to_db()
+            try:
+                import threading
+                from src.notification.notifier import notify_trade_event_sync
+                pos = _worker_instance.trader.risk_manager.open_position
+                threading.Thread(
+                    target=notify_trade_event_sync,
+                    args=("OPEN", {
+                        "side": pos.side,
+                        "entry_price": pos.entry_price,
+                        "quantity_btc": pos.quantity_btc,
+                        "reason": req.reason,
+                        "stop_loss": pos.stop_loss_price,
+                        "take_profit": pos.entry_price * (1.010 if pos.side == "BUY" else 0.990),
+                    }),
+                    daemon=True,
+                ).start()
+            except Exception:
+                pass
+        return {"success": True, "result": res, "portfolio": _worker_instance.trader.portfolio_summary(current_price=float(price))}
+
+    raise HTTPException(status_code=503, detail="Trading worker initializing")
+
+
+@app.post("/api/v1/trade/close")
+def close_manual_trade(req: ManualCloseRequest, db: Session = Depends(get_db)):
+    """Closes the currently open position at live price and saves to Neon DB."""
+    from src.prediction.worker import _worker_instance
+    price = req.exit_price or (_last_tick["price_usd"] if _last_tick else 0.0)
+    if _worker_instance is not None:
+        pos = _worker_instance.trader.risk_manager.open_position
+        if not pos:
+            return {"success": False, "status": "no_open_position"}
+        exit_p = float(price) if price and price > 0 else pos.entry_price
+        closed = _worker_instance.trader._record_closed_trade(req.reason, exit_p)
+        _worker_instance.sync_open_position_to_db()
+        return {"success": True, "trade": closed, "portfolio": _worker_instance.trader.portfolio_summary(current_price=exit_p)}
+
+    return emergency_stop(db=db)
 
 # Register alias routes without '/api' prefix so mounting at '/api' works seamlessly
 for _r in list(app.routes):

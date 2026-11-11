@@ -208,6 +208,61 @@ function jsonResponse(data, status = 200) {
   });
 }
 
+async function fetchRenderJson(endpoint, options = {}, timeoutMs = 4500) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const res = await fetch(`${RENDER_BACKEND_URL}${endpoint}`, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        "Accept": "application/json",
+        ...(options.headers || {}),
+      },
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (e) {
+    // Render unavailable or waking up — fallback smoothly
+  }
+  return null;
+}
+
+function mergeTradesWithBaseline(renderTrades, baselineTrades) {
+  const safeBaseline = Array.isArray(baselineTrades) ? baselineTrades : [];
+  if (!Array.isArray(renderTrades) || renderTrades.length === 0) {
+    return safeBaseline;
+  }
+
+  const baseClosingBal = safeBaseline.length > 0 ? (safeBaseline[0].balance_after || INITIAL_CAPITAL) : INITIAL_CAPITAL;
+  // Sort Render live trades oldest -> newest to compute continuous running balance from baseline
+  const chronologicalLive = [...renderTrades].sort((a, b) => {
+    const ta = a.closed_at ? new Date(a.closed_at).getTime() : 0;
+    const tb = b.closed_at ? new Date(b.closed_at).getTime() : 0;
+    return ta - tb;
+  });
+
+  let runningBal = baseClosingBal;
+  const normalizedLive = chronologicalLive.map((t, idx) => {
+    const pnl = Number(t.pnl_usd || 0);
+    runningBal = parseFloat((runningBal + pnl).toFixed(2));
+    const entryP = Number(t.entry_price || 0);
+    const qty = Number(t.quantity_btc || 1.0);
+    return {
+      ...t,
+      id: t.id || (t.closed_at ? new Date(t.closed_at).getTime() : Date.now() + idx),
+      position_usd: t.position_usd || parseFloat((entryP * qty).toFixed(2)),
+      exit_reason: t.exit_reason || t.reason || "signal",
+      balance_after: runningBal,
+    };
+  });
+
+  // Newest-first overall
+  return [...normalizedLive.reverse(), ...safeBaseline].slice(0, 60);
+}
+
 async function evaluateTradingEngine(state, env, currentPrice) {
   if (!currentPrice || isNaN(currentPrice) || currentPrice <= 0) return;
   state.last_price = currentPrice;
@@ -344,50 +399,94 @@ export default {
 
     // ── API ROUTES ───────────────────────────────────────────────────────────
 
-    // 1. Portfolio summary (Universal across all devices)
+    // 1. Portfolio summary (Render + Neon DB primary, merged with 7D baseline)
     if (path === "/api/v1/portfolio" || path === "/api/portfolio") {
-      const state = await getState(env);
-      try {
-        const pRes = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
-        if (pRes.ok) {
-          const pData = await pRes.json();
-          const p = parseFloat(pData.price);
-          if (p > 0) {
-            await evaluateTradingEngine(state, env, p);
-          }
-        }
-      } catch (e) {
-        // Fallback silently if Binance ticker is temporarily unavailable
+      const renderPortfolio = await fetchRenderJson("/api/v1/portfolio");
+      if (renderPortfolio && renderPortfolio.mode) {
+        const baseline = generateSeedTrades();
+        const mergedTrades = mergeTradesWithBaseline(renderPortfolio.recent_trades || [], baseline);
+        const totalPnl = mergedTrades.reduce((sum, t) => sum + (t.pnl_usd || 0), 0);
+        const currentBalance = parseFloat((INITIAL_CAPITAL + totalPnl).toFixed(2));
+        const totalTrades = mergedTrades.length;
+        const winningTrades = mergedTrades.filter(t => (t.pnl_usd || 0) > 0).length;
+        const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
+        const totalGains = mergedTrades.filter(t => (t.pnl_usd || 0) > 0).reduce((s, t) => s + t.pnl_usd, 0);
+        const totalLosses = mergedTrades.filter(t => (t.pnl_usd || 0) < 0).reduce((s, t) => s + Math.abs(t.pnl_usd), 0);
+        const profitFactor = totalLosses > 0 ? totalGains / totalLosses : (totalGains > 0 ? 999.0 : 1.0);
+        const peak = Math.max(INITIAL_CAPITAL, ...mergedTrades.map(t => t.balance_after || INITIAL_CAPITAL));
+        const maxDrawdown = peak > 0 ? ((peak - currentBalance) / peak) * 100 : 0;
+
+        return jsonResponse({
+          mode: "PAPER_TRADING",
+          initial_capital_usd: INITIAL_CAPITAL,
+          balance_usd: currentBalance,
+          peak_balance_usd: peak,
+          total_pnl_usd: parseFloat(totalPnl.toFixed(2)),
+          total_return_pct: parseFloat(((totalPnl / INITIAL_CAPITAL) * 100).toFixed(2)),
+          total_trades: totalTrades,
+          winning_trades: winningTrades,
+          win_rate_pct: parseFloat(winRate.toFixed(1)),
+          profit_factor: parseFloat(profitFactor.toFixed(2)),
+          max_drawdown_pct: parseFloat(Math.max(0, maxDrawdown).toFixed(2)),
+          open_position: renderPortfolio.open_position || null,
+          recent_trades: mergedTrades,
+          storage_sync: "RENDER_NEON_POSTGRES_SYNCED",
+        });
       }
+
+      const state = await getState(env);
       return jsonResponse(computeMetrics(state));
     }
 
-    // 2. Trade execution history
+    // 2. Trade execution history (Render + Neon DB primary, merged with 7D baseline)
     if (path === "/api/v1/trades/history" || path === "/api/trades/history") {
+      const renderTrades = await fetchRenderJson("/api/v1/trades/history?limit=50");
+      if (Array.isArray(renderTrades)) {
+        return jsonResponse(mergeTradesWithBaseline(renderTrades, generateSeedTrades()));
+      }
       const state = await getState(env);
       return jsonResponse(state.recent_trades || []);
     }
 
-    // 3. Latest AI prediction
+    // 3. Latest AI prediction (Live XGBoost output from Render)
     if (path === "/api/v1/prediction/latest" || path === "/api/prediction/latest") {
+      const renderPred = await fetchRenderJson("/api/v1/prediction/latest");
+      if (renderPred && renderPred.predicted_class) {
+        return jsonResponse(renderPred);
+      }
       const state = await getState(env);
-      const lastPrice = state.last_price || 81800.0;
+      const lastPrice = state.last_price || 74000.0;
       return jsonResponse({
         symbol: "BTCUSDT",
         timestamp: new Date().toISOString(),
         horizon: "1h",
         price: lastPrice,
-        probability_down: 0.16,
-        probability_neutral: 0.22,
-        probability_up: 0.62,
-        predicted_class: "UP",
-        confidence: 0.62,
-        model_version: "v2-xgboost (Cloudflare Shared)",
+        probability_down: 0.25,
+        probability_neutral: 0.40,
+        probability_up: 0.35,
+        predicted_class: "NEUTRAL",
+        confidence: 0.40,
+        model_version: "v2-xgboost (Edge Fallback)",
       });
     }
 
-    // 4. Open Trade (Invests the current Bitcoin market price for 1.0 BTC)
+    // 3b. Latest Alert (Live from Render)
+    if (path === "/api/v1/alerts/latest" || path === "/api/alerts/latest") {
+      const renderAlert = await fetchRenderJson("/api/v1/alerts/latest");
+      return jsonResponse(renderAlert || null);
+    }
+
+    // 4. Open Trade (Forwards to Render + Neon DB; edge fallback only if Render unreachable)
     if (path === "/api/v1/trade/execute" && request.method === "POST") {
+      const bodyText = await request.text();
+      const renderExec = await fetchRenderJson("/api/v1/trade/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: bodyText || "{}",
+      }, 6000);
+      if (renderExec) {
+        return jsonResponse(renderExec);
+      }
       const state = await getState(env);
       if (state.open_position) {
         return jsonResponse({ error: "Position already open", position: state.open_position }, 400);
@@ -395,17 +494,17 @@ export default {
 
       let body = {};
       try {
-        body = await request.json();
+        body = JSON.parse(bodyText || "{}");
       } catch (e) {
         body = {};
       }
 
       const side = body.side === "SELL" ? "SELL" : "BUY";
-      const entryPrice = parseFloat(body.price) || state.last_price || 81800.0;
-      const quantityBtc = 1.0; // 1 full Bitcoin
-      const investedUsd = entryPrice; // Invested amount = current Bitcoin price
-      const stopLoss = side === "BUY" ? entryPrice * 0.992 : entryPrice * 1.008; // 0.8% protective stop
-      const takeProfit = side === "BUY" ? entryPrice * 1.012 : entryPrice * 0.988; // 1.2% take profit target (~$1,000 profit!)
+      const entryPrice = parseFloat(body.price) || state.last_price || 74000.0;
+      const quantityBtc = 1.0;
+      const investedUsd = entryPrice;
+      const stopLoss = side === "BUY" ? entryPrice * 0.990 : entryPrice * 1.010;
+      const takeProfit = side === "BUY" ? entryPrice * 1.010 : entryPrice * 0.990;
 
       const newPos = {
         side,
@@ -419,7 +518,7 @@ export default {
         opened_at: new Date().toISOString(),
         unrealized_pnl_usd: 0.0,
         unrealized_pnl_pct: 0.0,
-        reason: body.reason || "autonomous_scalp",
+        reason: body.reason || "manual_execution",
       };
 
       state.open_position = newPos;
@@ -429,8 +528,17 @@ export default {
       return jsonResponse({ success: true, position: newPos });
     }
 
-    // 5. Close Trade (Withdraws profit)
+    // 5. Close Trade (Forwards to Render + Neon DB)
     if (path === "/api/v1/trade/close" && request.method === "POST") {
+      const bodyText = await request.text();
+      const renderClose = await fetchRenderJson("/api/v1/trade/close", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: bodyText || "{}",
+      }, 6000);
+      if (renderClose) {
+        return jsonResponse(renderClose);
+      }
       const state = await getState(env);
       const pos = state.open_position;
       if (!pos) {
@@ -439,7 +547,7 @@ export default {
 
       let body = {};
       try {
-        body = await request.json();
+        body = JSON.parse(bodyText || "{}");
       } catch (e) {
         body = {};
       }
@@ -480,8 +588,14 @@ export default {
       return jsonResponse({ success: true, trade: closedTrade });
     }
 
-    // 6. Emergency Stop Kill-Switch
+    // 6. Emergency Stop Kill-Switch (Forwards to Render + Neon DB)
     if (path === "/api/v1/trading/emergency-stop" && request.method === "POST") {
+      const renderStop = await fetchRenderJson("/api/v1/trading/emergency-stop", {
+        method: "POST",
+      }, 6000);
+      if (renderStop) {
+        return jsonResponse(renderStop);
+      }
       const state = await getState(env);
       const pos = state.open_position;
       if (!pos) {
