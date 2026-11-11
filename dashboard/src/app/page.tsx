@@ -160,16 +160,18 @@ const formatDisplayDateTime = (isoString?: string) => {
   try {
     const d = new Date(isoString);
     if (isNaN(d.getTime())) return { date: "—", time: "—" };
-    const date = d.toLocaleDateString("en-US", {
+    const date = d.toLocaleDateString("en-IN", {
       month: "short",
       day: "numeric",
       year: "numeric",
+      timeZone: "Asia/Kolkata",
     });
-    const time = d.toLocaleTimeString("en-US", {
+    const time = d.toLocaleTimeString("en-IN", {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
       hour12: true,
+      timeZone: "Asia/Kolkata",
     });
     return { date, time };
   } catch {
@@ -898,7 +900,7 @@ export default function Dashboard() {
   const exportCsvStatement = () => {
     const headers = [
       "Trade ID",
-      "Closed Time (UTC)",
+      "Closed Time (IST)",
       "Side",
       "Quantity (BTC)",
       "Invested (USD)",
@@ -1574,7 +1576,7 @@ export default function Dashboard() {
                   <th className="py-2.5 px-3">Return (%)</th>
                   <th className="py-2.5 px-3">Withdrawal Reason</th>
                   <th className="py-2.5 px-3">Balance After</th>
-                  <th className="py-2.5 px-3">Closed Date &amp; Time</th>
+                  <th className="py-2.5 px-3">Closed Date &amp; Time (IST)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -1635,7 +1637,7 @@ export default function Dashboard() {
                                 {formatDisplayDateTime(t.closed_at).date}
                               </span>
                               <span className="text-slate-500 text-[10px] font-mono">
-                                {formatDisplayDateTime(t.closed_at).time}
+                                {formatDisplayDateTime(t.closed_at).time} IST
                               </span>
                             </div>
                           ) : (
